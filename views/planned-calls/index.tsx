@@ -17,7 +17,6 @@ import { useAuth } from '@/providers/AuthProvider';
 import { useInfinitePlannedDoctors } from '@/api/doctor';
 import { savePlannedForMie, seedPlannedFromBulk } from '@/lib/offline/plannedBulk';
 import { completedDoctorIdsKey, useCompletedDoctorIds } from '@/api/calls';
-import { getPendingCallDoctorIds } from '@/lib/offline/outbox';
 import { CallKindSelector } from './CallKindSelector';
 import type { CallKind } from './callTypes';
 import { DoctorCard } from './DoctorCard';
@@ -34,9 +33,8 @@ export default function PlannedCalls() {
   // territory/institution mode, which lives in Settings only.
   const [callKind, setCallKind] = useState<CallKind>('chamber');
   const queryClient = useQueryClient();
-  // Doctor ids of calls queued offline (not yet synced to call_tracking).
-  const [outboxDoctorIds, setOutboxDoctorIds] = useState<string[]>([]);
-  // Doctor ids the rep has RECORDED a call for today (server call_tracking).
+  // Doctor ids the rep has RECORDED a call for today (server call_tracking,
+  // with this device's not-yet-uploaded calls already folded in).
   const { data: serverCompletedIds } = useCompletedDoctorIds(user?.mieId);
   // On = doctors finished for the selected call kind; off = still to do.
   const [showCompleted, setShowCompleted] = useState(false);
@@ -79,26 +77,17 @@ export default function PlannedCalls() {
     setVisibleCount(LIST_PAGE);
   }, [deferredSearchQuery, showCompleted, callKind]);
 
-  // Coming back from a call: pull the outbox again and refetch the server-side
-  // counts, so a call that just synced shows its new visit tally rather than the
-  // figures this screen was rendered with before the call.
+  // Coming back from a call: refetch the server-side counts, so a call that just
+  // synced shows its new visit tally rather than the figures this screen was
+  // rendered with before the call. Calls that HAVEN'T synced need no refetch —
+  // the call ledger already merges them into these queries.
   useFocusEffect(
     useCallback(() => {
-      void getPendingCallDoctorIds().then(setOutboxDoctorIds);
       void queryClient.invalidateQueries({ queryKey: ['planned-doctors'] });
       void queryClient.invalidateQueries({
         queryKey: completedDoctorIdsKey(user?.mieId),
       });
     }, [queryClient, user?.mieId])
-  );
-
-  // Calls that are NOT yet on the server — still sitting in the offline outbox.
-  // Only these may bump the count optimistically. A call that synced is already
-  // in the server's tally, and adding to it again marked an A2 doctor 2/2 after
-  // a single call, wrongly moving them to Completed.
-  const unsyncedSet = useMemo(
-    () => new Set<string>(outboxDoctorIds),
-    [outboxDoctorIds]
   );
 
   // A doctor is DONE only when the month's class quota is met — an A4 doctor
@@ -124,19 +113,15 @@ export default function PlannedCalls() {
 
     return mappedDoctors
       .map((doctor) => {
-        // Only an unsynced call is missing from the server's count; add it so
-        // the rep sees their circle straight away.
-        const pendingVisit = unsyncedSet.has(doctor.id) ? 1 : 0;
-        const recorded = (doctor.visitCount ?? 0) + pendingVisit;
-        const visitCount = doctor.maxVisits
-          ? Math.min(recorded, doctor.maxVisits)
-          : recorded;
+        // visitCount already includes this device's offline calls — the doctor
+        // rows are merged with the call ledger before they reach this screen.
+        const visitCount = doctor.visitCount ?? 0;
 
         // Done ONLY when the month's quota is met — an A2 doctor needs 2 calls,
         // an A4 needs 4. A doctor with no quota falls back to "called at all".
         const quotaMet = doctor.maxVisits
           ? visitCount >= doctor.maxVisits
-          : completedSet.has(doctor.id) || unsyncedSet.has(doctor.id);
+          : completedSet.has(doctor.id);
 
         return {
           ...doctor,
@@ -145,7 +130,7 @@ export default function PlannedCalls() {
         };
       })
       .sort((a, b) => Number(a.status === 'completed') - Number(b.status === 'completed'));
-  }, [completedSet, unsyncedSet, deferredSearchQuery, doctorsQuery.data?.pages]);
+  }, [completedSet, deferredSearchQuery, doctorsQuery.data?.pages]);
 
   /**
    * Completed FOR THE SELECTED CALL KIND: the doctor's monthly quota has to be

@@ -178,12 +178,20 @@ export default function CallScreen({
     [plannedDoctorsQuery.data?.pages],
   );
   /**
-   * Summary doctor picker = the rep's assigned doctors.
+   * Summary doctor picker = the rep's assigned doctors who still owe a call.
    *
    * A GROUP call is set up against one specialty, and its forcing content was
    * chosen for that specialty — so the doctors offered at the End of the call
    * are limited to the ones who hold it. Anything else would record a doctor as
    * having seen content meant for a different specialty.
+   *
+   * Doctors whose month is already covered are dropped: an A4 doctor with 4
+   * calls (or an A2 with 2) has nothing left owing, and attributing another call
+   * to them would push them past their class quota. Doctors with no class carry
+   * no quota, so there is no limit for them to have reached — they stay.
+   *
+   * VisitCount here already includes calls made on this device that haven't
+   * synced yet, so a doctor who hit their limit offline drops out immediately.
    */
   const doctorOptions = useMemo(() => {
     const rows =
@@ -191,9 +199,15 @@ export default function CallScreen({
         ? plannedRows.filter((row) => Number(row.SpecialtyId) === Number(specialtyId))
         : plannedRows;
 
+    const withCallsOwed = rows.filter((row) => {
+      const maxVisits = Number(row.MaxVisitCount) || 0;
+      if (maxVisits <= 0) return true;
+      return (Number(row.VisitCount) || 0) < maxVisits;
+    });
+
     return [
       ...new Set(
-        rows.map((row) => String(row.DOCTORNAME ?? '').trim()).filter(Boolean)
+        withCallsOwed.map((row) => String(row.DOCTORNAME ?? '').trim()).filter(Boolean)
       ),
     ].sort((a, b) => a.localeCompare(b));
   }, [plannedRows, isInstitutionCall, specialtyId]);
@@ -611,9 +625,11 @@ export default function CallScreen({
         multiDoctor={isGroupCall}
         doctorOptions={doctorOptions}
         doctorsEmptyText={
+          // The list drops doctors whose month is already covered, so an empty
+          // picker usually means "all done", not "none assigned".
           isInstitutionCall && specialtyName
-            ? `No assigned doctors with the ${specialtyName} specialty.`
-            : 'No doctors available for this team.'
+            ? `No ${specialtyName} doctors still owe a call this month.`
+            : 'No assigned doctors still owe a call this month.'
         }
         onCancel={() => setIsSummaryVisible(false)}
         onSubmit={handleSubmitSummary}

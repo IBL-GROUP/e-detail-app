@@ -182,7 +182,11 @@ export function MonthlyCallSummary({
 
   if (!mieId || !doctorId) return null;
 
-  if (query.isLoading) {
+  // `data` is the server's report with this device's not-yet-uploaded calls
+  // merged in, so it can be present while the fetch is still loading or failed
+  // outright — offline, the ledger IS the report. Only fall back to a state
+  // message when there is genuinely nothing to show.
+  if (query.isLoading && !query.data?.summary) {
     return (
       <View style={[styles.card, styles.centered]}>
         <ActivityIndicator color={Colors.primary} />
@@ -191,7 +195,7 @@ export function MonthlyCallSummary({
     );
   }
 
-  if (query.isError || !query.data?.summary) {
+  if (!query.data?.summary) {
     return (
       <View style={[styles.card, styles.centered]}>
         <Text style={styles.stateText}>Call history unavailable offline.</Text>

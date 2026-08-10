@@ -4,7 +4,9 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image as ExpoImage } from 'expo-image';
 
 import type { TeamBrand } from '@/api/content';
+import { Tag } from '@/components/tag';
 import { Colors } from '@/constants/theme';
+import { shortSkuName } from '@/lib/skuName';
 import { BrandImageViewer } from './BrandImageViewer';
 
 interface BrandCardProps {
@@ -75,6 +77,21 @@ export function BrandCard({ brand }: BrandCardProps) {
             {' · '}
             {brand.slideCount} image{brand.slideCount === 1 ? '' : 's'}
           </Text>
+
+          {/* The SKUs by name. Labels drop the brand, which the heading above
+              already carries, so the pills stay short enough to sit inline. */}
+          {hasSkus ? (
+            <View style={styles.pillRow}>
+              {brand.skus.map((sku) => (
+                <Tag
+                  key={sku.skuName}
+                  label={shortSkuName(sku.skuName, brand.brandName)}
+                  tone="neutral"
+                  style={styles.pill}
+                />
+              ))}
+            </View>
+          ) : null}
         </View>
       </Pressable>
 
@@ -144,6 +161,18 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14,
     paddingTop: 2,
     paddingBottom: 14,
+  },
+  pillRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 5,
+  },
+  // Tag is square-ish by design; fully round it so the SKUs read as pills.
+  pill: {
+    borderRadius: 999,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
   },
   brandName: {
     fontSize: 16,

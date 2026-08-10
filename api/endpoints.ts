@@ -4,6 +4,7 @@ export const ApiEndpoints = {
   forcingContent: '/content/forcing',
   specialties: '/content/specialties',
   teamBrands: '/content/team-brands',
+  mieBrands: '/content/mie-brands',
   syncDaily: '/sync/daily',
 } as const;
 

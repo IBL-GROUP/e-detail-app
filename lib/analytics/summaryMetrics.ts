@@ -1,7 +1,7 @@
-import { useMemo } from 'react';
+import { useMemo } from "react";
 
-import { useInfinitePlannedDoctors } from '@/api/doctor';
-import { useAuth } from '@/providers/AuthProvider';
+import { useInfinitePlannedDoctors } from "@/api/doctor";
+import { useAuth } from "@/providers/AuthProvider";
 
 /**
  * The four headline figures shown on Analytics.
@@ -11,7 +11,7 @@ export interface SummaryMetric {
   value: string;
   /** The pill beside the value. Omitted when there is no real figure. */
   change?: string;
-  tone: 'positive' | 'negative' | 'neutral';
+  tone: "positive" | "negative" | "neutral";
 }
 
 /**
@@ -19,10 +19,10 @@ export interface SummaryMetric {
  * so the two live figures lead.
  */
 const AVG_DURATION: SummaryMetric = {
-  label: 'Avg Duration',
-  value: '14m',
-  change: '-2%',
-  tone: 'negative',
+  label: "Avg Engagement Time",
+  value: "14m",
+  change: "-2%",
+  tone: "negative",
 };
 
 export interface MonthlyProgress {
@@ -104,21 +104,21 @@ export function useSummaryMetrics(): readonly SummaryMetric[] {
   return useMemo(
     () => [
       {
-        label: 'Calls Made / Planned Calls',
+        label: "Calls Made / Planned Calls",
         value: `${made} / ${planned}`,
         // Progress through the plan, not a month-over-month change. It stays
         // blue until the target is met and green after — being at 20% on the 7th
         // is normal, so painting it red would cry wolf all month. No pill at all
         // when there is no target; there'd be nothing to be a percentage of.
         change: planned > 0 ? `${callPercent}%` : undefined,
-        tone: callPercent >= 100 ? ('positive' as const) : ('neutral' as const),
+        tone: callPercent >= 100 ? ("positive" as const) : ("neutral" as const),
       },
       {
-        label: 'Covered / Doctors',
+        label: "Covered / Doctors",
         value: `${covered} / ${doctors}`,
         change: doctors > 0 ? `${coveredPercent}%` : undefined,
         tone:
-          coveredPercent >= 100 ? ('positive' as const) : ('neutral' as const),
+          coveredPercent >= 100 ? ("positive" as const) : ("neutral" as const),
       },
       AVG_DURATION,
     ],

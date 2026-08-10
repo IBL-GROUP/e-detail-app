@@ -117,6 +117,46 @@ export const useTeamBrands = (teamId?: number) => {
   });
 };
 
+/** One SKU in the rep's product book — a name, nothing else. */
+export interface MieSku {
+  skuId: string | null;
+  skuName: string;
+}
+
+/** One brand the rep carries, with every SKU under it. */
+export interface MieBrand {
+  brandId: string | null;
+  brandName: string;
+  skus: MieSku[];
+}
+
+export const mieBrandsKey = (mieId?: string) =>
+  ['mie-brands', mieId ?? 'no-mie'] as const;
+
+export const getMieBrands = async (mieId: string): Promise<MieBrand[]> => {
+  const res = (await axios.get(ApiEndpoints.mieBrands, {
+    params: { mieId },
+  })) as unknown as { success: boolean; data: MieBrand[] };
+
+  return res.data ?? [];
+};
+
+/**
+ * Every brand and SKU mapped to this rep — their whole product book.
+ *
+ * Sourced from `products`/`brands` (via the rep's team), NOT from the forcing
+ * table: forcing only covers what is currently being pushed, which is a subset
+ * of what the rep actually carries.
+ */
+export const useMieBrands = (mieId?: string) => {
+  return useQuery<MieBrand[]>({
+    queryKey: mieBrandsKey(mieId),
+    queryFn: () => getMieBrands(mieId as string),
+    enabled: Boolean(mieId),
+    staleTime: 30 * 60 * 1000,
+  });
+};
+
 function parseDurationSeconds(duration: string | null | undefined) {
   const match = String(duration ?? '').match(/(\d+)/);
   const seconds = match ? Number(match[1]) : 10;

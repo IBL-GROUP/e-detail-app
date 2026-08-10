@@ -1,5 +1,13 @@
 import { useQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import axios from '@/config/axios';
+import { useLocalCalls } from '@/lib/offline/useLocalCalls';
+import {
+  mergeCompletedDoctorIds,
+  mergeDoctorSummary,
+  mergeEngagement,
+  mergeMonthlyTotals,
+} from '@/lib/offline/localCallModels';
 
 /**
  * One completed call, shaped to the backend `call_tracking` columns. Only
@@ -105,12 +113,20 @@ export const getCompletedDoctorIds = async (mieId: string): Promise<string[]> =>
 // Server-recorded completed doctors, cached (and offline-persisted) so the
 // Completed tab survives app restarts. Refetches when online.
 export const useCompletedDoctorIds = (mieId?: string) => {
-  return useQuery({
+  const query = useQuery({
     queryKey: completedDoctorIdsKey(mieId),
     queryFn: () => getCompletedDoctorIds(mieId as string),
     enabled: Boolean(mieId),
     staleTime: 60 * 1000,
   });
+  const local = useLocalCalls();
+
+  const data = useMemo(
+    () => mergeCompletedDoctorIds(query.data, local, mieId, query.dataUpdatedAt),
+    [query.data, query.dataUpdatedAt, local, mieId],
+  );
+
+  return { ...query, data };
 };
 
 export interface MonthlyCallTotals {
@@ -136,12 +152,20 @@ export const getMonthlyCallTotals = async (
  * enough between refetches.
  */
 export const useMonthlyCallTotals = (mieId?: string) => {
-  return useQuery({
+  const query = useQuery({
     queryKey: monthlyCallTotalsKey(mieId),
     queryFn: () => getMonthlyCallTotals(mieId as string),
     enabled: Boolean(mieId),
     staleTime: 5 * 60 * 1000,
   });
+  const local = useLocalCalls();
+
+  const data = useMemo(
+    () => mergeMonthlyTotals(query.data, local, mieId, query.dataUpdatedAt),
+    [query.data, query.dataUpdatedAt, local, mieId],
+  );
+
+  return { ...query, data };
 };
 
 /** One bar of an engagement breakdown: a specialty or a brand. */
@@ -178,12 +202,20 @@ export const getEngagement = async (
  * Cached (and offline-persisted) like the rest of the analytics figures.
  */
 export const useEngagement = (mieId?: string) => {
-  return useQuery({
+  const query = useQuery({
     queryKey: engagementKey(mieId),
     queryFn: () => getEngagement(mieId as string),
     enabled: Boolean(mieId),
     staleTime: 5 * 60 * 1000,
   });
+  const local = useLocalCalls();
+
+  const data = useMemo(
+    () => mergeEngagement(query.data, local, mieId, query.dataUpdatedAt),
+    [query.data, query.dataUpdatedAt, local, mieId],
+  );
+
+  return { ...query, data };
 };
 
 /** One completed call in the month's history with a doctor. */
@@ -266,10 +298,26 @@ export const useDoctorCallSummary = (
   doctorId?: string,
   kind?: string
 ) => {
-  return useQuery({
+  const query = useQuery({
     queryKey: doctorCallSummaryKey(mieId, doctorId, kind),
     queryFn: () => getDoctorCallSummary(mieId as string, doctorId as string, kind),
     enabled: Boolean(mieId && doctorId),
     staleTime: 60 * 1000,
   });
+  // Calls this device made that the response can't include yet — folded in so
+  // the report reads the same offline as it will once they upload.
+  const local = useLocalCalls();
+
+  const data = useMemo(
+    () =>
+      mergeDoctorSummary(query.data, local, {
+        mieId,
+        doctorId,
+        kind,
+        fetchedAt: query.dataUpdatedAt,
+      }),
+    [query.data, query.dataUpdatedAt, local, mieId, doctorId, kind],
+  );
+
+  return { ...query, data };
 };

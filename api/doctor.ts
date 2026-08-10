@@ -1,6 +1,10 @@
 import { useInfiniteQuery } from '@tanstack/react-query';
+import { useMemo } from 'react';
 import axios from '@/config/axios';
 import { ApiEndpoints } from '@/api/endpoints';
+import { useLocalCalls } from '@/lib/offline/useLocalCalls';
+import { mergeDoctorRows } from '@/lib/offline/localCallModels';
+import type { LocalCall } from '@/lib/offline/callLedger';
 
 export interface DoctorDataRow {
   TEAMID?: number;
@@ -130,8 +134,30 @@ export const plannedDoctorsPageParams = {
     lastPage.hasMore ? lastPage.offset + lastPage.count : undefined,
 };
 
+/**
+ * Fold this device's calls into every page of a doctor list, so VisitCount /
+ * LastVisit and the per-kind split read the same whether the call has reached
+ * the server or is still sitting in the outbox. Every screen that shows a visit
+ * tally — Call Reporting, Doctor List, the coverage card, the Analytics totals —
+ * reads these rows, so merging here fixes all of them at once.
+ */
+function useMergedDoctorPages<
+  T extends { pages: DoctorDataResponse[]; pageParams: unknown[] },
+>(data: T | undefined, dataUpdatedAt: number, local: LocalCall[]) {
+  return useMemo(() => {
+    if (!data) return data;
+    return {
+      ...data,
+      pages: data.pages.map((page) => ({
+        ...page,
+        data: mergeDoctorRows(page.data, local, dataUpdatedAt),
+      })),
+    };
+  }, [data, dataUpdatedAt, local]);
+}
+
 export const useInfiniteDoctors = ({ mieId, teamId, query }: DoctorQueryParams) => {
-  return useInfiniteQuery({
+  const result = useInfiniteQuery({
     queryKey: doctorsKey(teamId, mieId, query),
     initialPageParam: 0,
     queryFn: ({ pageParam }) =>
@@ -147,10 +173,15 @@ export const useInfiniteDoctors = ({ mieId, teamId, query }: DoctorQueryParams) 
     enabled: Boolean(teamId) && (Boolean(mieId) || mieId === undefined),
     staleTime: 5 * 60 * 1000,
   });
+
+  const local = useLocalCalls();
+  const data = useMergedDoctorPages(result.data, result.dataUpdatedAt, local);
+
+  return { ...result, data };
 };
 
 export const useInfinitePlannedDoctors = ({ mieId, teamId, query }: DoctorQueryParams) => {
-  return useInfiniteQuery({
+  const result = useInfiniteQuery({
     queryKey: plannedDoctorsKey(teamId, mieId, query),
     initialPageParam: 0,
     queryFn: ({ pageParam }) =>
@@ -166,4 +197,9 @@ export const useInfinitePlannedDoctors = ({ mieId, teamId, query }: DoctorQueryP
     enabled: Boolean(teamId && mieId),
     staleTime: 5 * 60 * 1000,
   });
+
+  const local = useLocalCalls();
+  const data = useMergedDoctorPages(result.data, result.dataUpdatedAt, local);
+
+  return { ...result, data };
 };

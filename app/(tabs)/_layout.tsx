@@ -61,6 +61,10 @@ export default function TabLayout() {
         name="content-library"
         options={{ href: null }}
       />
+      <Tabs.Screen
+        name="my-brands"
+        options={{ href: null }}
+      />
 
       {/* Doctor detail lives inside the tabs so the bottom nav stays visible. */}
       <Tabs.Screen

@@ -14,6 +14,7 @@ import {
   dbDelete,
   dbUpdateFailed,
 } from './outboxStore';
+import { initCallLedger, markLocalCallSynced, recordLocalCall } from './callLedger';
 
 /**
  * A durable, offline-first write queue for call activity. Every completed call
@@ -44,6 +45,7 @@ const syncedListeners = new Set<() => void>();
 /** Initialize the store early (called at app start). */
 export async function initOutbox(): Promise<void> {
   await openOutbox();
+  await initCallLedger();
 }
 
 function notify() {
@@ -89,24 +91,6 @@ export async function getPendingCount(): Promise<number> {
 }
 
 /**
- * Doctor ids of calls still queued locally (recorded offline, not yet synced to
- * call_tracking). Lets the Completed tab include just-made offline calls.
- */
-export async function getPendingCallDoctorIds(): Promise<string[]> {
-  const rows = await dbGetBatch(1000);
-  const ids = new Set<string>();
-  for (const row of rows) {
-    try {
-      const payload = JSON.parse(row.payload) as { doctorid?: string };
-      if (payload.doctorid) ids.add(String(payload.doctorid));
-    } catch {
-      // skip unparseable rows
-    }
-  }
-  return [...ids];
-}
-
-/**
  * Queue one completed call. Writes locally, then kicks off a best-effort flush
  * (which is a no-op when offline). Resolves once the row is persisted, so the
  * UI can proceed immediately regardless of connectivity.
@@ -114,6 +98,9 @@ export async function getPendingCallDoctorIds(): Promise<string[]> {
 export async function enqueueCall(payload: CallTrackingInput): Promise<string> {
   const clientId = Crypto.randomUUID();
   await dbInsert(clientId, JSON.stringify(payload), new Date().toISOString());
+  // Also record it in the durable ledger: the outbox row disappears on upload,
+  // but the screens still have to report this call for the rest of the month.
+  await recordLocalCall(payload);
   notify();
   // Fire-and-forget; never block the caller on the network.
   void flushOutbox();
@@ -160,12 +147,19 @@ export async function flushOutbox(): Promise<void> {
     }
 
     const attemptsByClientId = new Map(rows.map((row) => [row.client_id, row.attempts]));
+    // The outbox row id and the call's own client_call_id are different keys —
+    // map one to the other so an accepted row can be marked synced in the ledger.
+    const callIdByClientId = new Map(
+      items.map((item) => [item.clientId, item.client_call_id]),
+    );
     let syncedCount = 0;
     for (const result of response.results) {
       if (!result.clientId) continue;
       if (result.success) {
         syncedCount += 1;
         await dbDelete(result.clientId);
+        const clientCallId = callIdByClientId.get(result.clientId);
+        if (clientCallId) await markLocalCallSynced(clientCallId);
       } else {
         const nextAttempts = (attemptsByClientId.get(result.clientId) ?? 0) + 1;
         if (nextAttempts >= MAX_REJECT_ATTEMPTS) {

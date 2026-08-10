@@ -42,9 +42,6 @@ export function AppMultiSelectSheet({
   const [modalVisible, setModalVisible] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const backdropOpacity = useRef(new Animated.Value(0)).current;
-  // Width of the trigger's text area, so we can fit as many names as possible
-  // and overflow the rest into a "+N" count.
-  const [triggerTextWidth, setTriggerTextWidth] = useState(0);
   // Selection snapshotted when the sheet opens — used to sort selected-first
   // without rows jumping around as the user toggles during this session.
   const [openSelected, setOpenSelected] = useState<Set<string>>(new Set());
@@ -71,37 +68,14 @@ export function AppMultiSelectSheet({
     );
   }, [orderedOptions, searchQuery]);
 
-  // Trigger summary: fit as many selected names as the width allows, then "+N".
-  const summary = useMemo(() => {
-    const labels = options
-      .filter((option) => selectedSet.has(option.value))
-      .map((option) => option.label);
-    if (labels.length === 0) return '';
-
-    // Before the first layout, fall back to a name + count.
-    if (triggerTextWidth <= 0) {
-      return labels.length <= 2
-        ? labels.join(', ')
-        : `${labels[0]}, +${labels.length - 1}`;
-    }
-
-    // Estimate width by an average glyph width; reserve room for the " +NN".
-    const CHAR_W = 8.5; // ~px per char at 14px / weight 600
-    const SEP_W = CHAR_W * 2; // ", "
-    const RESERVE = 50; // room for the overflow " +N" chip
-    const avail = triggerTextWidth - RESERVE;
-
-    let used = 0;
-    const shown: string[] = [];
-    for (const label of labels) {
-      const w = label.length * CHAR_W + (shown.length ? SEP_W : 0);
-      if (shown.length > 0 && used + w > avail) break;
-      used += w;
-      shown.push(label);
-    }
-    const hidden = labels.length - shown.length;
-    return hidden > 0 ? `${shown.join(', ')} +${hidden}` : shown.join(', ');
-  }, [options, selectedSet, triggerTextWidth]);
+  // What's selected, in the options' own order — one pill each on the trigger.
+  const selectedLabels = useMemo(
+    () =>
+      options
+        .filter((option) => selectedSet.has(option.value))
+        .map((option) => option.label),
+    [options, selectedSet],
+  );
 
   useEffect(() => {
     if (sheetVisible) {
@@ -148,13 +122,23 @@ export function AppMultiSelectSheet({
         }}
         style={({ pressed }) => [styles.trigger, pressed && styles.triggerPressed]}
       >
-        <Text
-          numberOfLines={1}
-          onLayout={(e) => setTriggerTextWidth(e.nativeEvent.layout.width)}
-          style={[styles.triggerText, values.length === 0 && styles.placeholderText]}
-        >
-          {summary || placeholder}
-        </Text>
+        {selectedLabels.length === 0 ? (
+          <Text numberOfLines={1} style={[styles.triggerText, styles.placeholderText]}>
+            {placeholder}
+          </Text>
+        ) : (
+          // One pill per selection, wrapping onto further lines as needed. The
+          // trigger grows with them rather than truncating the names.
+          <View style={styles.pillWrap}>
+            {selectedLabels.map((label) => (
+              <View key={label} style={styles.pill}>
+                <Text style={styles.pillText} numberOfLines={1}>
+                  {label}
+                </Text>
+              </View>
+            ))}
+          </View>
+        )}
         <Ionicons name="chevron-down" size={20} color={Colors.textMuted} />
       </Pressable>
 
@@ -243,6 +227,9 @@ const styles = StyleSheet.create({
     borderColor: Colors.border,
     backgroundColor: '#F8FAFC',
     paddingHorizontal: 12,
+    // Pills can wrap onto more than one line, so pad vertically rather than
+    // relying on a fixed row height.
+    paddingVertical: 7,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
@@ -256,6 +243,26 @@ const styles = StyleSheet.create({
     color: Colors.text,
     fontSize: 14,
     fontWeight: '600',
+  },
+  pillWrap: {
+    flex: 1,
+    minWidth: 0,
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    alignItems: 'center',
+    gap: 6,
+  },
+  pill: {
+    maxWidth: '100%',
+    borderRadius: 999,
+    backgroundColor: Colors.primaryLight,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+  },
+  pillText: {
+    color: Colors.secondary,
+    fontSize: 13,
+    fontWeight: '700',
   },
   placeholderText: {
     color: Colors.textMuted,

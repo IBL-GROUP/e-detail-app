@@ -29,6 +29,14 @@ const NAV_CARDS: {
     href: '/content-library',
   },
   {
+    // The team's content narrowed to the specialties this rep's doctors hold,
+    // with those specialties named against each brand.
+    label: 'Your Brands Content',
+    description: 'Assigned to you, by specialty',
+    iconName: 'pricetags-outline',
+    href: '/my-brands',
+  },
+  {
     label: 'Call Reporting',
     description: "Report today's calls",
     iconName: 'calendar-outline',
@@ -41,6 +49,21 @@ const NAV_CARDS: {
     href: '/analytics',
   },
 ];
+
+/**
+ * The cards laid out two per row, padded so the last row keeps its shape.
+ *
+ * Derived from NAV_CARDS rather than sliced by hand: the grid used to render a
+ * fixed slice(0,2) + slice(2,4), so adding a fifth card silently dropped the
+ * last one off the dashboard.
+ */
+const NAV_ROWS: ((typeof NAV_CARDS)[number] | null)[][] = Array.from(
+  { length: Math.ceil(NAV_CARDS.length / 2) },
+  (_, row) => {
+    const pair = NAV_CARDS.slice(row * 2, row * 2 + 2);
+    return pair.length === 2 ? pair : [...pair, null];
+  }
+);
 
 export default function Dashboard() {
   const { user } = useAuth();
@@ -60,28 +83,29 @@ export default function Dashboard() {
       }
     >
       <View style={styles.grid}>
-        <View style={styles.row}>
-          {NAV_CARDS.slice(0, 2).map((card) => (
-            <DashboardNavCard
-              key={card.label}
-              label={card.label}
-              description={card.description}
-              iconName={card.iconName}
-              onPress={() => router.navigate(card.href)}
-            />
-          ))}
-        </View>
-        <View style={styles.row}>
-          {NAV_CARDS.slice(2, 4).map((card) => (
-            <DashboardNavCard
-              key={card.label}
-              label={card.label}
-              description={card.description}
-              iconName={card.iconName}
-              onPress={() => router.navigate(card.href)}
-            />
-          ))}
-        </View>
+        {NAV_ROWS.map((row, rowIndex) => (
+          <View key={`row-${rowIndex}`} style={styles.row}>
+            {row.map((card, position) => (
+              // Every slot is the SAME cell view, filled or empty, so each
+              // column resolves to an identical width on every row. Letting the
+              // card and an empty spacer flex on their own styles left the last
+              // row slightly wider than the rows above it.
+              <View
+                key={card ? card.label : `spacer-${position}`}
+                style={styles.cell}
+              >
+                {card ? (
+                  <DashboardNavCard
+                    label={card.label}
+                    description={card.description}
+                    iconName={card.iconName}
+                    onPress={() => router.navigate(card.href)}
+                  />
+                ) : null}
+              </View>
+            ))}
+          </View>
+        ))}
       </View>
     </ScreenLayout>
   );
@@ -97,5 +121,11 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     gap: 12,
+  },
+  // One column of one row. minWidth 0 stops a card's text forcing the cell
+  // wider than its share, which is what pushed the last row out of alignment.
+  cell: {
+    flex: 1,
+    minWidth: 0,
   },
 });
