@@ -42,7 +42,11 @@ const CALL_DERIVED_QUERY_KEYS = [
   ['completed-doctors'],
   ['monthly-call-totals'],
   ['engagement'],
+  // Both doctor lists carry VisitCount / LastVisit straight off call_tracking:
+  // 'planned-doctors' backs Call Reporting, the Doctor List and the Analytics
+  // totals; 'doctors' is the team pool behind the Unplanned tab.
   ['planned-doctors'],
+  ['doctors'],
 ] as const;
 
 export function OutboxProvider({ children }: { children: ReactNode }) {
