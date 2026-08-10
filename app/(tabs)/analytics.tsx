@@ -19,7 +19,7 @@ import { useEngagement, useMonthlyCallTotals, type EngagementSlice } from '@/api
 import { useAuth } from '@/providers/AuthProvider';
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
-import { Alert, StyleSheet, Text, View } from 'react-native';
+import { Alert, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 const callVolumeData: LineChartDataPoint[] = [
   { label: 'Jan', value: 45 },
@@ -93,6 +93,20 @@ function formatRangeLabel(start: Date, end: Date) {
 
 export default function AnalyticsScreen() {
   const { user } = useAuth();
+  const { width } = useWindowDimensions();
+  /**
+   * Below this the label and the date stop fitting on one line inside a
+   * half-width control, and the date wrapped down the middle of the box
+   * ("Aug / 10, / 2026"). Putting the label on its own line hands the date the
+   * full width of its half instead.
+   */
+  const stackDateLabels = width < 900;
+  /**
+   * Smaller still: even stacked, each date only gets a quarter of the screen
+   * because Export PDF holds the other half of the row. Below this the button
+   * drops onto its own line so the two dates share the FULL width instead.
+   */
+  const stackHeaderActions = width < 640;
   // Analytics is scoped to a date range (start → end); default to today.
   const [startDate, setStartDate] = useState(() => new Date());
   const [endDate, setEndDate] = useState(() => new Date());
@@ -169,12 +183,16 @@ export default function AnalyticsScreen() {
       subtitle="Deep dive into your field performance metrics"
       contentStyle={styles.content}
     >
-      <View style={styles.headerActions}>
+      <View
+        style={[styles.headerActions, stackHeaderActions && styles.headerActionsStacked]}
+      >
         {/* One bordered control split down the middle — the two halves read as a
             single range, but each still opens its own calendar exactly as before. */}
-        <View style={styles.datesGroup}>
+        <View style={[styles.datesGroup, stackHeaderActions && styles.fullWidthField]}>
           <View style={styles.dateGroup}>
-            <View style={styles.dateGroupHalf}>
+            <View
+              style={[styles.dateGroupHalf, stackDateLabels && styles.dateGroupHalfStacked]}
+            >
               <Text style={styles.dateGroupLabel}>Start Date :</Text>
               <AppCalendarSheet
                 value={startDate}
@@ -185,7 +203,10 @@ export default function AnalyticsScreen() {
                 }}
                 title="Select Start Date"
                 chevronColor={Colors.primary}
-                triggerStyle={styles.dateTrigger}
+                triggerStyle={[
+                  styles.dateTrigger,
+                  stackDateLabels && styles.dateTriggerStacked,
+                ]}
                 triggerContentStyle={styles.dateTriggerContent}
                 triggerTextStyle={styles.dateTriggerText}
               />
@@ -193,7 +214,9 @@ export default function AnalyticsScreen() {
 
             <View style={styles.dateGroupDivider} />
 
-            <View style={styles.dateGroupHalf}>
+            <View
+              style={[styles.dateGroupHalf, stackDateLabels && styles.dateGroupHalfStacked]}
+            >
               <Text style={styles.dateGroupLabel}>End Date :</Text>
               <AppCalendarSheet
                 value={endDate}
@@ -204,14 +227,19 @@ export default function AnalyticsScreen() {
                 }}
                 title="Select End Date"
                 chevronColor={Colors.primary}
-                triggerStyle={styles.dateTrigger}
+                triggerStyle={[
+                  styles.dateTrigger,
+                  stackDateLabels && styles.dateTriggerStacked,
+                ]}
                 triggerContentStyle={styles.dateTriggerContent}
                 triggerTextStyle={styles.dateTriggerText}
               />
             </View>
           </View>
         </View>
-        <View style={styles.exportFieldWrap}>
+        <View
+          style={[styles.exportFieldWrap, stackHeaderActions && styles.fullWidthField]}
+        >
           <AppButton
             label={isExporting ? 'Preparing…' : 'Export PDF'}
             onPress={handleExportPdf}
@@ -369,19 +397,34 @@ const styles = StyleSheet.create({
     gap: 12,
     alignItems: 'stretch',
   },
+  // Very small screens: dates on one line, export button beneath.
+  headerActionsStacked: {
+    flexDirection: 'column',
+  },
+  // Overrides the 50/50 split so each control spans the row on its own.
+  fullWidthField: {
+    flex: 0,
+    flexBasis: 'auto',
+    width: '100%',
+  },
   // Left 50%: the joined start/end control.
   datesGroup: {
     flex: 1,
     flexBasis: 0,
   },
   // Right 50%: the export button, matched to the group's height.
+  // No justifyContent here: centring the button held it at its own height while
+  // the taller date control set the row's. The button stretches instead.
   exportFieldWrap: {
     flex: 1,
     flexBasis: 0,
-    justifyContent: 'center',
   },
-  // The two pickers share one outline, split by a hairline.
+  // The two pickers share one outline, split by a hairline. Fills its wrapper so
+  // it ends up exactly as tall as the export button beside it — without flex it
+  // sat at its content height while the button set the row's.
   dateGroup: {
+    flex: 1,
+    minHeight: 40,
     flexDirection: 'row',
     alignItems: 'stretch',
     borderRadius: 12,
@@ -400,6 +443,16 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingHorizontal: 12,
     paddingVertical: 5,
+  },
+  // Narrow screens: label on its own line, date beneath it at full width.
+  dateGroupHalfStacked: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    // Column direction makes the vertical axis the main one, so this is what
+    // keeps the label + date centred if the group stretches to match the button.
+    justifyContent: 'center',
+    gap: 1,
+    paddingVertical: 7,
   },
   dateGroupDivider: {
     width: 2,
@@ -423,6 +476,12 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     paddingHorizontal: 0,
   },
+  // Stacked, the trigger is no longer competing with the label for one row —
+  // it takes the half's full width instead of the leftover space.
+  dateTriggerStacked: {
+    flex: 0,
+    alignSelf: 'stretch',
+  },
   dateTriggerContent: {
     justifyContent: 'flex-start',
     gap: 6,
@@ -433,8 +492,11 @@ const styles = StyleSheet.create({
     color: Colors.primary,
   },
   exportButton: {
+    // Same rule as the date control: a 40px floor, growing to whichever of the
+    // two is taller so both always end up the same height.
+    flex: 1,
     width: '100%',
-    minHeight: 36,
+    minHeight: 40,
     borderRadius: 12,
     paddingVertical: 5,
   },
