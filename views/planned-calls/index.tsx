@@ -153,22 +153,44 @@ export default function PlannedCalls() {
     [callKind]
   );
 
+  /**
+   * Still owed a call — the month's quota isn't met yet.
+   *
+   * Independent of the call kind, unlike the Completed side. A doctor who
+   * finished their four calls in the chamber owes nothing under Parking either,
+   * and listing them as outstanding there meant tapping into a doctor with no
+   * Start Call button on the other side.
+   */
+  const isOutstanding = useCallback(
+    (doctor: (typeof doctors)[number]) => doctor.status !== 'completed',
+    []
+  );
+
+  /**
+   * Group is set up as ONE call whose attendees are chosen at the end, so its
+   * list isn't a per-doctor worklist the way Chamber and Parking are — every
+   * assigned doctor can be added. Its badge therefore counts all of them.
+   */
   const activeCount = useMemo(
-    () => doctors.filter((doctor) => !isCompletedForKind(doctor)).length,
-    [doctors, isCompletedForKind]
+    () =>
+      callKind === 'group'
+        ? doctors.length
+        : doctors.filter(isOutstanding).length,
+    [callKind, doctors, isOutstanding]
   );
   const completedCount = useMemo(
     () => doctors.filter(isCompletedForKind).length,
     [doctors, isCompletedForKind]
   );
 
-  // Toggle on → finished for this kind; off → still outstanding for it.
+  // Toggle on → finished, and at least one call was of this kind; off → still
+  // owed a call, whatever kind it ends up being.
   const filteredDoctors = useMemo(
     () =>
       doctors.filter((doctor) =>
-        showCompleted ? isCompletedForKind(doctor) : !isCompletedForKind(doctor)
+        showCompleted ? isCompletedForKind(doctor) : isOutstanding(doctor)
       ),
-    [doctors, showCompleted, isCompletedForKind]
+    [doctors, showCompleted, isCompletedForKind, isOutstanding]
   );
 
   const visibleDoctors = useMemo(
@@ -208,24 +230,23 @@ export default function PlannedCalls() {
         <View style={styles.stickyTitleBlock}>
           <View style={styles.stickyTitleRow}>
             <Text style={styles.stickyTitle}>Assigned Doctors</Text>
-            <View style={styles.stickyCount}>
-              <Text style={styles.stickyCountText}>
+            {/* Chamber and Parking count what's still OWED, so they carry the
+                total to be a fraction of. Group's list is every assigned doctor
+                and Completed is a plain tally — neither is out of anything. */}
+            <View style={[styles.stickyCount, showCompleted && styles.stickyCountDone]}>
+              <Text
+                style={[
+                  styles.stickyCountText,
+                  showCompleted && styles.stickyCountTextDone,
+                ]}
+              >
                 {showCompleted ? completedCount : activeCount}
+                {!showCompleted && callKind !== 'group' ? (
+                  <Text style={styles.stickyCountTotal}> / {totalLoaded}</Text>
+                ) : null}
               </Text>
             </View>
           </View>
-
-          {/* Only the group setup panel carries a subtitle. Chamber and parking
-              show the count badge alone — their "showing X of Y … calls" line
-              repeated what the list already made obvious. */}
-          {showInstitutionPanel &&
-          !doctorsQuery.isLoading &&
-          !doctorsQuery.isError &&
-          totalLoaded > 0 ? (
-            <Text style={styles.summaryText} numberOfLines={1}>
-              {`${totalLoaded} doctors available for group calls`}
-            </Text>
-          ) : null}
         </View>
 
         <CompletedToggle value={showCompleted} onChange={setShowCompleted} />
@@ -327,12 +348,12 @@ export default function PlannedCalls() {
                 <Text style={styles.stateTitle}>
                   {showCompleted
                     ? `No completed ${callKind} calls yet`
-                    : `No active ${callKind} calls`}
+                    : 'No doctors left to call'}
                 </Text>
                 <Text style={styles.stateText}>
                   {showCompleted
                     ? `Doctors finish here once their month's calls are done and one was a ${callKind} call.`
-                    : `Every doctor with a ${callKind} call is already finished for the month.`}
+                    : 'Every assigned doctor has finished their calls for the month.'}
                 </Text>
               </View>
             ) : null}
@@ -412,14 +433,22 @@ const styles = StyleSheet.create({
     paddingHorizontal: 7,
     paddingVertical: 2,
   },
+  // Green while the Completed toggle is on, matching the toggle itself.
+  stickyCountDone: {
+    backgroundColor: Colors.successBg,
+  },
   stickyCountText: {
-    fontSize: 12,
+    fontSize: 14,
     fontWeight: '800',
     color: Colors.secondary,
   },
-  summaryText: {
-    fontSize: 12,
-    color: Colors.textMuted,
+  stickyCountTextDone: {
+    color: Colors.success,
+  },
+  // Same size and weight as the numerator — only the colour separates them.
+  // Sizing them differently made the pair look misaligned rather than ranked.
+  stickyCountTotal: {
+    color: Colors.text,
   },
   panelScroll: {
     flex: 1,

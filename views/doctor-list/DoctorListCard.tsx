@@ -1,6 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import {
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+  type StyleProp,
+  type TextStyle,
+} from 'react-native';
 
 import { Tag } from '@/components/tag';
 import { Colors } from '@/constants/theme';
@@ -25,22 +32,33 @@ function hasValue(value?: string) {
 /** One icon + value pair in the footer strip. */
 function MetaItem({
   icon,
+  label,
   value,
   highlighted = false,
+  textStyle,
 }: {
   icon: keyof typeof Ionicons.glyphMap;
+  /** Prefix naming the value — a bare date says nothing on its own. */
+  label?: string;
   value?: string;
   /** Brand-coloured — used for the PMDC number reps look up most. */
   highlighted?: boolean;
+  /** Applied to BOTH halves, so a resized item never splits in two sizes. */
+  textStyle?: StyleProp<TextStyle>;
 }) {
   return (
     <View style={styles.metaItem}>
       <Ionicons
         name={icon}
-        size={13}
+        size={14}
         color={highlighted ? Colors.primary : Colors.textMuted}
+        style={styles.metaIcon}
       />
-      <Text style={[styles.meta, highlighted && styles.metaHighlighted]} numberOfLines={1}>
+      {label ? <Text style={[styles.metaLabel, textStyle]}>{label}</Text> : null}
+      <Text
+        style={[styles.meta, highlighted && styles.metaHighlighted, textStyle]}
+        numberOfLines={1}
+      >
         {value}
       </Text>
     </View>
@@ -131,7 +149,12 @@ export function DoctorListCard({ doctor }: DoctorListCardProps) {
             ) : null}
 
             <Divider />
-            <MetaItem icon="time-outline" value={doctor.lastVisit} />
+            <MetaItem
+              icon="time-outline"
+              label="Last visited :"
+              value={doctor.lastVisit}
+              textStyle={styles.metaLastVisit}
+            />
           </View>
 
           <View style={styles.action}>
@@ -225,16 +248,41 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 5,
   },
+  /**
+   * Icon fonts sit their glyph high in the line box — the box centres, but the
+   * shape inside it doesn't, so the icon reads as floating above the text.
+   * Nudging it down a pixel lines the glyph up with the letters.
+   */
+  metaIcon: {
+    marginTop: 1.5,
+  },
+  // The explicit lineHeight fixes the text's box height so the 13px icon
+  // centres against it identically on every platform — left to the font it
+  // drifts a pixel.
   meta: {
     flexShrink: 1,
     fontSize: 13,
+    lineHeight: 16,
     fontWeight: '500',
+    color: Colors.textMuted,
+  },
+  // Names the value beside it; slightly heavier so the two read as a pair
+  // rather than one run-on string.
+  metaLabel: {
+    fontSize: 13,
+    lineHeight: 16,
+    fontWeight: '700',
     color: Colors.textMuted,
   },
   // The registration number is what reps look up most — brand-coloured.
   metaHighlighted: {
     fontWeight: '700',
     color: Colors.primary,
+  },
+  // Only the last-visit pair is sized up; location and PMDC stay at 13.
+  metaLastVisit: {
+    fontSize: 14,
+    lineHeight: 17,
   },
   action: {
     flexDirection: 'row',

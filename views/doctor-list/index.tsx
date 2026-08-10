@@ -147,17 +147,6 @@ export default function DoctorList() {
               </View>
             ) : null}
 
-            {doctors.length > 0 ? (
-              <View style={styles.summaryRow}>
-                <Text style={styles.summaryText}>
-                  Showing {visibleDoctors.length} of {doctors.length} doctors
-                </Text>
-                <View style={styles.viewOnlyPill}>
-                  <Ionicons name="eye-outline" size={12} color={Colors.textMuted} />
-                  <Text style={styles.viewOnlyText}>View only</Text>
-                </View>
-              </View>
-            ) : null}
           </View>
         }
         ListFooterComponent={<View style={styles.footerSpacer} />}
@@ -250,33 +239,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.textMuted,
     textAlign: 'center',
-  },
-  summaryRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  summaryText: {
-    fontSize: 13,
-    fontWeight: '600',
-    color: Colors.textMuted,
-  },
-  viewOnlyPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    borderRadius: 999,
-    borderWidth: 1,
-    borderColor: Colors.border,
-    backgroundColor: Colors.surface,
-    paddingHorizontal: 8,
-    paddingVertical: 3,
-  },
-  viewOnlyText: {
-    fontSize: 11,
-    fontWeight: '700',
-    color: Colors.textMuted,
   },
   footerSpacer: {
     height: 24,

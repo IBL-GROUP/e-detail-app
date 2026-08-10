@@ -167,10 +167,17 @@ export function DoctorCard({
             <Tag label={doctor.doctorClass as string} icon="ribbon-outline" tone="neutral" />
           ) : null}
 
+          {/* Same "label : value" pairing as the Doctor List card. */}
           <View style={styles.metaItem}>
-            <Ionicons name="time-outline" size={13} color={Colors.textMuted} />
+            <Ionicons
+              name="time-outline"
+              size={14}
+              color={Colors.textMuted}
+              style={styles.metaIcon}
+            />
+            <Text style={styles.metaLabel}>Last visited :</Text>
             <Text style={styles.metaText} numberOfLines={1}>
-              Last visit: {doctor.lastVisit}
+              {doctor.lastVisit}
             </Text>
           </View>
 
@@ -268,12 +275,32 @@ const styles = StyleSheet.create({
     minWidth: 8,
   },
   metaItem: {
+    flexShrink: 1,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 4,
+    gap: 5,
+  },
+  // Names the value beside it, matching the Doctor List card. The explicit
+  // lineHeight fixes the text's box height so the 13px icon centres against it
+  // identically on every platform — left to the font it drifts a pixel.
+  /**
+   * Icon fonts sit their glyph high in the line box — the box centres, but the
+   * shape inside it doesn't, so the icon reads as floating above the text.
+   * Nudging it down a pixel lines the glyph up with the letters.
+   */
+  metaIcon: {
+    marginTop: 1.5,
+  },
+  metaLabel: {
+    fontSize: 14,
+    lineHeight: 17,
+    fontWeight: '700',
+    color: Colors.textMuted,
   },
   metaText: {
-    fontSize: 13,
+    flexShrink: 1,
+    fontSize: 14,
+    lineHeight: 17,
     color: Colors.textMuted,
   },
   viewDetails: {

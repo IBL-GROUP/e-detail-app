@@ -1,17 +1,32 @@
-import { Ionicons } from '@expo/vector-icons';
+import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 
 import { Colors } from '@/constants/theme';
 import type { CallKind } from './callTypes';
 
+/**
+ * Which family the glyph comes from.
+ *
+ * Ionicons has no three-person icon — `people-outline` is two, which read as a
+ * pair rather than a group beside the single-person Chamber icon. Material's
+ * `account-group-outline` is the three-person one, so Group borrows it.
+ */
+type KindIcon =
+  | { family: 'ion'; name: keyof typeof Ionicons.glyphMap }
+  | { family: 'mci'; name: keyof typeof MaterialCommunityIcons.glyphMap };
+
 const CALL_KINDS: {
   key: CallKind;
   label: string;
-  icon: keyof typeof Ionicons.glyphMap;
+  icon: KindIcon;
 }[] = [
-  { key: 'chamber', label: 'Chamber', icon: 'person-outline' },
-  { key: 'group', label: 'Group', icon: 'people-outline' },
-  { key: 'parking', label: 'Parking', icon: 'car-outline' },
+  { key: 'chamber', label: 'Chamber', icon: { family: 'ion', name: 'person-outline' } },
+  {
+    key: 'group',
+    label: 'Group',
+    icon: { family: 'mci', name: 'account-group-outline' },
+  },
+  { key: 'parking', label: 'Parking', icon: { family: 'ion', name: 'car-outline' } },
 ];
 
 interface CallKindSelectorProps {
@@ -41,11 +56,21 @@ export function CallKindSelector({ value, onChange, style }: CallKindSelectorPro
                 pressed && styles.pressed,
               ]}
             >
-              <Ionicons
-                name={option.icon}
-                size={20}
-                color={isActive ? Colors.textOnDark : Colors.primary}
-              />
+              {option.icon.family === 'mci' ? (
+                <MaterialCommunityIcons
+                  name={option.icon.name}
+                  // Material's glyphs read a touch smaller at the same nominal
+                  // size, so it's bumped to sit level with the Ionicons ones.
+                  size={22}
+                  color={isActive ? Colors.textOnDark : Colors.primary}
+                />
+              ) : (
+                <Ionicons
+                  name={option.icon.name}
+                  size={20}
+                  color={isActive ? Colors.textOnDark : Colors.primary}
+                />
+              )}
               <Text style={[styles.segmentText, isActive && styles.segmentTextActive]}>
                 {option.label}
               </Text>

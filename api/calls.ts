@@ -6,6 +6,7 @@ import {
   mergeCompletedDoctorIds,
   mergeDoctorSummary,
   mergeEngagement,
+  mergeLastCallFeedback,
   mergeMonthlyTotals,
 } from '@/lib/offline/localCallModels';
 
@@ -132,18 +133,46 @@ export const useCompletedDoctorIds = (mieId?: string) => {
 export interface MonthlyCallTotals {
   thisMonth: number;
   previousMonth: number;
+  /** The spans each figure covers (YYYY-MM-DD), so they can be labelled. */
+  currentFrom?: string | null;
+  currentTo?: string | null;
+  previousFrom?: string | null;
+  previousTo?: string | null;
 }
 
-export const monthlyCallTotalsKey = (mieId?: string) =>
-  ['monthly-call-totals', mieId ?? 'no-mie'] as const;
+/**
+ * An explicit reporting period. Omitted entirely, every endpoint below falls
+ * back to the current calendar month — the behaviour before Analytics could
+ * pick a period.
+ */
+export interface CallPeriod {
+  /** YYYY-MM-DD */
+  from: string;
+  /** YYYY-MM-DD */
+  to: string;
+}
+
+const periodKey = (period?: CallPeriod) =>
+  period ? `${period.from}..${period.to}` : 'current-month';
+
+export const monthlyCallTotalsKey = (mieId?: string, period?: CallPeriod) =>
+  ['monthly-call-totals', mieId ?? 'no-mie', periodKey(period)] as const;
 
 export const getMonthlyCallTotals = async (
   mieId: string,
+  period?: CallPeriod,
 ): Promise<MonthlyCallTotals> => {
   const res = (await axios.get('/calls/monthly-totals', {
-    params: { mieId },
+    params: { mieId, from: period?.from, to: period?.to },
   })) as unknown as { success: boolean } & MonthlyCallTotals;
-  return { thisMonth: res.thisMonth ?? 0, previousMonth: res.previousMonth ?? 0 };
+  return {
+    thisMonth: res.thisMonth ?? 0,
+    previousMonth: res.previousMonth ?? 0,
+    currentFrom: res.currentFrom ?? null,
+    currentTo: res.currentTo ?? null,
+    previousFrom: res.previousFrom ?? null,
+    previousTo: res.previousTo ?? null,
+  };
 };
 
 /**
@@ -151,18 +180,18 @@ export const getMonthlyCallTotals = async (
  * offline-persisted) — last month's figure is settled, and this month's is close
  * enough between refetches.
  */
-export const useMonthlyCallTotals = (mieId?: string) => {
+export const useMonthlyCallTotals = (mieId?: string, period?: CallPeriod) => {
   const query = useQuery({
-    queryKey: monthlyCallTotalsKey(mieId),
-    queryFn: () => getMonthlyCallTotals(mieId as string),
+    queryKey: monthlyCallTotalsKey(mieId, period),
+    queryFn: () => getMonthlyCallTotals(mieId as string, period),
     enabled: Boolean(mieId),
     staleTime: 5 * 60 * 1000,
   });
   const local = useLocalCalls();
 
   const data = useMemo(
-    () => mergeMonthlyTotals(query.data, local, mieId, query.dataUpdatedAt),
-    [query.data, query.dataUpdatedAt, local, mieId],
+    () => mergeMonthlyTotals(query.data, local, mieId, query.dataUpdatedAt, period),
+    [query.data, query.dataUpdatedAt, local, mieId, period],
   );
 
   return { ...query, data };
@@ -182,14 +211,15 @@ export interface EngagementBreakdown {
   byBrand: EngagementSlice[];
 }
 
-export const engagementKey = (mieId?: string) =>
-  ['engagement', mieId ?? 'no-mie'] as const;
+export const engagementKey = (mieId?: string, period?: CallPeriod) =>
+  ['engagement', mieId ?? 'no-mie', periodKey(period)] as const;
 
 export const getEngagement = async (
   mieId: string,
+  period?: CallPeriod,
 ): Promise<EngagementBreakdown> => {
   const res = (await axios.get('/calls/engagement', {
-    params: { mieId },
+    params: { mieId, from: period?.from, to: period?.to },
   })) as unknown as { success: boolean } & Partial<EngagementBreakdown>;
   return {
     bySpecialty: res.bySpecialty ?? [],
@@ -201,18 +231,18 @@ export const getEngagement = async (
  * Average detailing time per call this month, by doctor specialty and by brand.
  * Cached (and offline-persisted) like the rest of the analytics figures.
  */
-export const useEngagement = (mieId?: string) => {
+export const useEngagement = (mieId?: string, period?: CallPeriod) => {
   const query = useQuery({
-    queryKey: engagementKey(mieId),
-    queryFn: () => getEngagement(mieId as string),
+    queryKey: engagementKey(mieId, period),
+    queryFn: () => getEngagement(mieId as string, period),
     enabled: Boolean(mieId),
     staleTime: 5 * 60 * 1000,
   });
   const local = useLocalCalls();
 
   const data = useMemo(
-    () => mergeEngagement(query.data, local, mieId, query.dataUpdatedAt),
-    [query.data, query.dataUpdatedAt, local, mieId],
+    () => mergeEngagement(query.data, local, mieId, query.dataUpdatedAt, period),
+    [query.data, query.dataUpdatedAt, local, mieId, period],
   );
 
   return { ...query, data };
@@ -256,6 +286,52 @@ export interface DoctorCallSummary {
   /** Date of the most recent completed call, or null. */
   lastVisit?: string | null;
 }
+
+/** What the rep wrote down on their last completed call with a doctor. */
+export interface LastCallFeedback {
+  /** YYYY-MM-DD */
+  date: string;
+  /** The quick-feedback chips, comma separated. */
+  feedback?: string | null;
+  /** The free-text note. */
+  feedbackComment?: string | null;
+}
+
+export const lastCallFeedbackKey = (mieId?: string, doctorId?: string) =>
+  ['last-call-feedback', mieId ?? 'no-mie', doctorId ?? 'no-doctor'] as const;
+
+export const getLastCallFeedback = async (
+  mieId: string,
+  doctorId: string,
+): Promise<LastCallFeedback | null> => {
+  const res = (await axios.get('/calls/last-feedback', {
+    params: { mieId, doctorId },
+  })) as unknown as { success: boolean; feedback: LastCallFeedback | null };
+  return res.feedback ?? null;
+};
+
+/**
+ * The previous call's notes for this doctor, or null when there are none.
+ *
+ * Calls this device recorded are checked too, so a note written on the last
+ * visit is readable on the next one whether or not it has uploaded yet.
+ */
+export const useLastCallFeedback = (mieId?: string, doctorId?: string) => {
+  const query = useQuery({
+    queryKey: lastCallFeedbackKey(mieId, doctorId),
+    queryFn: () => getLastCallFeedback(mieId as string, doctorId as string),
+    enabled: Boolean(mieId && doctorId),
+    staleTime: 60 * 1000,
+  });
+  const local = useLocalCalls();
+
+  const data = useMemo(
+    () => mergeLastCallFeedback(query.data ?? null, local, mieId, doctorId),
+    [query.data, local, mieId, doctorId],
+  );
+
+  return { ...query, data };
+};
 
 export interface DoctorCallSummaryResponse {
   success: boolean;

@@ -1,5 +1,5 @@
 import { AppColumnChart, ColumnChartPoint } from '@/components/ui/AppColumnChart';
-import { AppCalendarSheet } from '@/components/ui/AppCalendarSheet';
+import { AppMonthSheet, AppDayRangeSheet, daysInMonth } from '@/components/ui/AppPeriodSheets';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppChartCard } from '@/components/ui/AppChartCard';
 import { AppLineChart, LineChartDataPoint } from '@/components/ui/AppLineChart';
@@ -11,14 +11,20 @@ import { exportAnalyticsPdf, type BreakdownRow } from '@/lib/analytics/exportPdf
 import { useSummaryMetrics } from '@/lib/analytics/summaryMetrics';
 import {
   SALES_BY_BRAND,
-  SALES_BY_SPECIALTY,
+  SALES_BY_BRICK,
+  SALES_BY_SKU,
   SALES_METRICS,
   SALES_MONTHLY,
 } from '@/lib/analytics/salesDemo';
-import { useEngagement, useMonthlyCallTotals, type EngagementSlice } from '@/api/calls';
+import {
+  useEngagement,
+  useMonthlyCallTotals,
+  type CallPeriod,
+  type EngagementSlice,
+} from '@/api/calls';
 import { useAuth } from '@/providers/AuthProvider';
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Alert, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 
 const callVolumeData: LineChartDataPoint[] = [
@@ -80,6 +86,46 @@ const PERFORMANCE_VIEWS: SegmentedOption<PerformanceView>[] = [
   { key: 'sales', label: 'Sales Performance', icon: 'cash-outline' },
 ];
 
+/** The Sales view's breakdowns — one card each, in this order. */
+const SALES_BREAKDOWNS: {
+  title: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  data: ColumnChartPoint[];
+}[] = [
+  { title: 'Sales by Brand', icon: 'cube-outline', data: SALES_BY_BRAND },
+  { title: 'Sales by SKU', icon: 'pricetag-outline', data: SALES_BY_SKU },
+  { title: 'Sales by Brick', icon: 'map-outline', data: SALES_BY_BRICK },
+];
+
+/** YYYY-MM-DD in LOCAL time — toISOString would shift the day across UTC. */
+function toIsoDay(date: Date) {
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${date.getFullYear()}-${month}-${day}`;
+}
+
+/**
+ * A span as a short label: "Aug 1 – 10", "Jul 22 – Aug 3", or "Aug 5" for a
+ * single day. The month is only repeated when the span crosses one, so the
+ * common case stays short enough for a stat box.
+ */
+function formatSpan(from?: string | null, to?: string | null) {
+  if (!from || !to) return '';
+
+  const start = new Date(`${from}T00:00:00`);
+  const end = new Date(`${to}T00:00:00`);
+  if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime())) return '';
+
+  const month = (date: Date) =>
+    date.toLocaleDateString(undefined, { month: 'short' });
+
+  if (from === to) return `${month(start)} ${start.getDate()}`;
+  if (start.getMonth() === end.getMonth() && start.getFullYear() === end.getFullYear()) {
+    return `${month(start)} ${start.getDate()} – ${end.getDate()}`;
+  }
+  return `${month(start)} ${start.getDate()} – ${month(end)} ${end.getDate()}`;
+}
+
 function formatRangeLabel(start: Date, end: Date) {
   const opts: Intl.DateTimeFormatOptions = {
     year: 'numeric',
@@ -107,18 +153,65 @@ export default function AnalyticsScreen() {
    * drops onto its own line so the two dates share the FULL width instead.
    */
   const stackHeaderActions = width < 640;
-  // Analytics is scoped to a date range (start → end); default to today.
-  const [startDate, setStartDate] = useState(() => new Date());
-  const [endDate, setEndDate] = useState(() => new Date());
+  /**
+   * The period is a month plus a day range inside it. Defaults to the current
+   * month, 1st through today — the figures a rep wants on opening the screen.
+   */
+  const [period, setPeriod] = useState(() => {
+    const today = new Date();
+    return {
+      year: today.getFullYear(),
+      month: today.getMonth(),
+      fromDay: 1,
+      toDay: today.getDate(),
+    };
+  });
+
+  // The same period as real dates, for the PDF header and any range-aware query.
+  const startDate = useMemo(
+    () => new Date(period.year, period.month, period.fromDay),
+    [period],
+  );
+  const endDate = useMemo(
+    () => new Date(period.year, period.month, period.toDay),
+    [period],
+  );
   const [isExporting, setIsExporting] = useState(false);
   const [view, setView] = useState<PerformanceView>('call');
   const isSales = view === 'sales';
   // Same figures the metric grid renders, so the PDF matches the screen.
   const metrics = useSummaryMetrics();
-  // Completed calls this month vs last, straight from call_tracking.
-  const { data: monthlyCompleted } = useMonthlyCallTotals(user?.mieId);
-  // Average detailing time per call, by specialty and by brand.
-  const { data: engagement } = useEngagement(user?.mieId);
+  /**
+   * The selected period as the API wants it. Memoised on the primitives rather
+   * than on `period`, so a re-render with the same days doesn't produce a new
+   * object and refetch every query keyed on it.
+   */
+  const callPeriod = useMemo<CallPeriod>(
+    () => ({ from: toIsoDay(startDate), to: toIsoDay(endDate) }),
+    [startDate, endDate],
+  );
+  // Calls completed in the period, against the same length of time before it.
+  const { data: monthlyCompleted } = useMonthlyCallTotals(user?.mieId, callPeriod);
+  // Average detailing time per call in the period, by specialty and by brand.
+  const { data: engagement } = useEngagement(user?.mieId, callPeriod);
+  /**
+   * Prefer the spans the server reported the figures for; before the first
+   * response lands, fall back to the period the pickers are showing. The span
+   * is named in brackets so the label says both what it is and what it covers.
+   */
+  const currentSpan =
+    formatSpan(monthlyCompleted?.currentFrom, monthlyCompleted?.currentTo) ||
+    formatSpan(callPeriod.from, callPeriod.to);
+  const previousSpan = formatSpan(
+    monthlyCompleted?.previousFrom,
+    monthlyCompleted?.previousTo,
+  );
+  const currentSpanLabel = currentSpan
+    ? `Current Month (${currentSpan})`
+    : 'Current Month';
+  const previousSpanLabel = previousSpan
+    ? `Previous Month (${previousSpan})`
+    : 'Previous Month';
   const specialtyColumns = toColumns(engagement?.bySpecialty ?? []);
   const brandColumns = toColumns(engagement?.byBrand ?? []);
   const outstandingCalls = Math.max(0, rfiData.planned - rfiData.completed);
@@ -139,14 +232,15 @@ export default function AnalyticsScreen() {
               viewLabel: 'Sales Performance',
               metrics: SALES_METRICS,
               monthly: {
-                title: 'Sales Booked',
+                title: 'Total Sales',
                 thisMonth: SALES_MONTHLY.thisMonth,
                 previousMonth: SALES_MONTHLY.previousMonth,
               },
-              breakdowns: [
-                { title: 'Avg Sales by Specialty', rows: toRows(SALES_BY_SPECIALTY) },
-                { title: 'Avg Sales by Brand', rows: toRows(SALES_BY_BRAND) },
-              ],
+              // The same three cards the Sales view shows, in the same order.
+              breakdowns: SALES_BREAKDOWNS.map((breakdown) => ({
+                title: breakdown.title,
+                rows: toRows(breakdown.data),
+              })),
             }
           : {
               dateLabel: formatRangeLabel(startDate, endDate),
@@ -186,22 +280,35 @@ export default function AnalyticsScreen() {
       <View
         style={[styles.headerActions, stackHeaderActions && styles.headerActionsStacked]}
       >
-        {/* One bordered control split down the middle — the two halves read as a
-            single range, but each still opens its own calendar exactly as before. */}
+        {/* One bordered control split down the middle: WHICH month on the left,
+            WHICH days inside it on the right. */}
         <View style={[styles.datesGroup, stackHeaderActions && styles.fullWidthField]}>
           <View style={styles.dateGroup}>
             <View
               style={[styles.dateGroupHalf, stackDateLabels && styles.dateGroupHalfStacked]}
             >
-              <Text style={styles.dateGroupLabel}>Start Date :</Text>
-              <AppCalendarSheet
-                value={startDate}
-                onChange={(next) => {
-                  setStartDate(next);
-                  // Keep the range valid: pull the end up if it fell behind.
-                  if (next > endDate) setEndDate(next);
-                }}
-                title="Select Start Date"
+              <Text style={styles.dateGroupLabel}>Month :</Text>
+              <AppMonthSheet
+                year={period.year}
+                month={period.month}
+                onChange={(year, month) =>
+                  setPeriod(() => {
+                    // A new month resets the days: the old range may not exist in
+                    // it (the 31st of a 30-day month), and "so far" only means
+                    // today in the current month.
+                    const today = new Date();
+                    const isCurrentMonth =
+                      year === today.getFullYear() && month === today.getMonth();
+                    return {
+                      year,
+                      month,
+                      fromDay: 1,
+                      toDay: isCurrentMonth
+                        ? today.getDate()
+                        : daysInMonth(year, month),
+                    };
+                  })
+                }
                 chevronColor={Colors.primary}
                 triggerStyle={[
                   styles.dateTrigger,
@@ -217,15 +324,15 @@ export default function AnalyticsScreen() {
             <View
               style={[styles.dateGroupHalf, stackDateLabels && styles.dateGroupHalfStacked]}
             >
-              <Text style={styles.dateGroupLabel}>End Date :</Text>
-              <AppCalendarSheet
-                value={endDate}
-                onChange={(next) => {
-                  setEndDate(next);
-                  // Keep the range valid: pull the start back if it overtook.
-                  if (next < startDate) setStartDate(next);
-                }}
-                title="Select End Date"
+              <Text style={styles.dateGroupLabel}>Days :</Text>
+              <AppDayRangeSheet
+                year={period.year}
+                month={period.month}
+                fromDay={period.fromDay}
+                toDay={period.toDay}
+                onChange={(fromDay, toDay) =>
+                  setPeriod((current) => ({ ...current, fromDay, toDay }))
+                }
                 chevronColor={Colors.primary}
                 triggerStyle={[
                   styles.dateTrigger,
@@ -265,26 +372,45 @@ export default function AnalyticsScreen() {
               color={Colors.primary}
             />
             <Text style={styles.sectionTitle}>
-              {isSales ? 'Sales Booked' : 'Calls Completed'}
+              {isSales ? 'Total Sales' : 'Calls Completed'}
             </Text>
-            <Text style={styles.rfiSubtitle}>(This / Previous Month)</Text>
+            {/* Both views compare the same way, so they read the same way. */}
+            <Text style={styles.rfiSubtitle}>
+              Selected month vs previous month
+            </Text>
           </View>
         </View>
         <View style={styles.rfiStatsRow}>
           <View style={styles.rfiStatBox}>
-            <Text style={styles.rfiStatLabel}>This Month</Text>
+            {/* Labelled with the span the figure actually covers — the period is
+                a day range, so "This Month" was only ever right by accident. */}
+            <Text style={styles.rfiStatLabel}>
+              {isSales ? 'Current Month' : currentSpanLabel}
+            </Text>
             <Text style={styles.rfiStatValue}>
               {isSales ? SALES_MONTHLY.thisMonth : monthlyCompleted?.thisMonth ?? 0}
             </Text>
           </View>
+
           <View style={styles.rfiStatBox}>
-            <Text style={styles.rfiStatLabel}>Previous Month</Text>
+            <Text style={styles.rfiStatLabel}>
+              {isSales ? 'Previous Month' : previousSpanLabel}
+            </Text>
             <Text style={styles.rfiStatValue}>
               {isSales
                 ? SALES_MONTHLY.previousMonth
                 : monthlyCompleted?.previousMonth ?? 0}
             </Text>
           </View>
+
+          {/* Sales only: how the two compare, so the reader doesn't have to do
+              the arithmetic between the boxes either side of it. */}
+          {isSales ? (
+            <View style={styles.rfiStatBox}>
+              <Text style={styles.rfiStatLabel}>Growth</Text>
+              <Text style={styles.rfiStatValue}>{SALES_MONTHLY.growth}</Text>
+            </View>
+          ) : null}
         </View>
       </View>
 
@@ -343,45 +469,57 @@ export default function AnalyticsScreen() {
           </AppChartCard>
         )}
 
-        <AppChartCard
-          title={
-            isSales
-              ? 'Average Sales by Specialty'
-              : 'Average Engagement Time by Specialty'
-          }
-          icon={<Ionicons name="people-outline" size={20} color={Colors.primary} />}
-          chartWrapperStyle={styles.barChartWrapper}
-          style={styles.chartCard}
-        >
-          {isSales ? (
-            <AppColumnChart data={SALES_BY_SPECIALTY} height={210} />
-          ) : specialtyColumns.length > 0 ? (
-            <AppColumnChart data={specialtyColumns} height={210} />
-          ) : (
-            <Text style={styles.chartEmpty}>
-              No calls recorded this month yet.
-            </Text>
-          )}
-        </AppChartCard>
+        {isSales ? (
+          // Sales breaks down three ways; calls break down two. Rendering them
+          // as separate sets beats forcing one set of cards to be both.
+          SALES_BREAKDOWNS.map((breakdown) => (
+            <AppChartCard
+              key={breakdown.title}
+              title={breakdown.title}
+              icon={
+                <Ionicons name={breakdown.icon} size={20} color={Colors.primary} />
+              }
+              chartWrapperStyle={styles.barChartWrapper}
+              style={styles.chartCard}
+            >
+              <AppColumnChart data={breakdown.data} height={210} />
+            </AppChartCard>
+          ))
+        ) : (
+          <>
+            <AppChartCard
+              title="Average Engagement Time by Specialty"
+              icon={
+                <Ionicons name="people-outline" size={20} color={Colors.primary} />
+              }
+              chartWrapperStyle={styles.barChartWrapper}
+              style={styles.chartCard}
+            >
+              {specialtyColumns.length > 0 ? (
+                <AppColumnChart data={specialtyColumns} height={210} />
+              ) : (
+                <Text style={styles.chartEmpty}>
+                  No calls recorded in this period.
+                </Text>
+              )}
+            </AppChartCard>
 
-        <AppChartCard
-          title={
-            isSales ? 'Average Sales by Brand' : 'Average Engagement Time by Brand'
-          }
-          icon={<Ionicons name="cube-outline" size={20} color={Colors.primary} />}
-          chartWrapperStyle={styles.barChartWrapper}
-          style={styles.chartCard}
-        >
-          {isSales ? (
-            <AppColumnChart data={SALES_BY_BRAND} height={210} />
-          ) : brandColumns.length > 0 ? (
-            <AppColumnChart data={brandColumns} height={210} />
-          ) : (
-            <Text style={styles.chartEmpty}>
-              No brands detailed this month yet.
-            </Text>
-          )}
-        </AppChartCard>
+            <AppChartCard
+              title="Average Engagement Time by Brand"
+              icon={<Ionicons name="cube-outline" size={20} color={Colors.primary} />}
+              chartWrapperStyle={styles.barChartWrapper}
+              style={styles.chartCard}
+            >
+              {brandColumns.length > 0 ? (
+                <AppColumnChart data={brandColumns} height={210} />
+              ) : (
+                <Text style={styles.chartEmpty}>
+                  No brands detailed in this period.
+                </Text>
+              )}
+            </AppChartCard>
+          </>
+        )}
       </View>
     </ScreenLayout>
   );
@@ -541,10 +679,14 @@ const styles = StyleSheet.create({
   },
   rfiStatsRow: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     gap: 12,
   },
   rfiStatBox: {
     flex: 1,
+    // Three boxes need a floor, or the labels crush on a narrow screen; with
+    // flexWrap the third drops to its own line instead.
+    minWidth: 150,
     borderRadius: 14,
     backgroundColor: '#F8FAFC',
     paddingHorizontal: 14,

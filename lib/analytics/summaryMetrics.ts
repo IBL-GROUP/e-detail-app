@@ -104,7 +104,7 @@ export function useSummaryMetrics(): readonly SummaryMetric[] {
   return useMemo(
     () => [
       {
-        label: "Calls Made / Planned Calls",
+        label: "Call / Planned",
         value: `${made} / ${planned}`,
         // Progress through the plan, not a month-over-month change. It stays
         // blue until the target is met and green after — being at 20% on the 7th

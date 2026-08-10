@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import {
   ActivityIndicator,
   ScrollView,
@@ -10,7 +10,6 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 
 import { useMieBrands, type MieBrand } from '@/api/content';
-import { AppSearchInput } from '@/components/ui/AppSearchInput';
 import { ScreenLayout } from '@/components/ui/ScreenLayout';
 import { Tag } from '@/components/tag';
 import { Colors } from '@/constants/theme';
@@ -41,31 +40,12 @@ function toRows(brands: MieBrand[], columns: number): (MieBrand | null)[][] {
 export default function MyBrands() {
   const { user } = useAuth();
   const { width } = useWindowDimensions();
-  const [searchQuery, setSearchQuery] = useState('');
-  const deferredSearchQuery = useDeferredValue(searchQuery.trim());
   const brandsQuery = useMieBrands(user?.mieId);
+  const brands = brandsQuery.data ?? [];
 
   // Three across on a desktop/wide window, two on a tablet, one on a phone so
   // the SKU pills stay readable.
   const columns = width >= 1000 ? 3 : width >= 640 ? 2 : 1;
-
-  const brands = useMemo<MieBrand[]>(() => {
-    const all = brandsQuery.data ?? [];
-    const search = deferredSearchQuery.toLowerCase();
-    if (!search) return all;
-
-    // Match the brand, or any of its SKUs; when the hit is on a SKU show only
-    // the SKUs that matched.
-    return all
-      .map((brand) => {
-        if (brand.brandName.toLowerCase().includes(search)) return brand;
-        const skus = brand.skus.filter((sku) =>
-          sku.skuName.toLowerCase().includes(search)
-        );
-        return skus.length > 0 ? { ...brand, skus } : null;
-      })
-      .filter((brand): brand is MieBrand => brand !== null);
-  }, [brandsQuery.data, deferredSearchQuery]);
 
   const brandRows = useMemo(() => toRows(brands, columns), [brands, columns]);
 
@@ -73,7 +53,7 @@ export default function MyBrands() {
 
   return (
     <ScreenLayout
-      title="Your Brands Content"
+      title="Brands & SKUs"
       subtitle={user?.name}
       scrollable={false}
       showBack
@@ -82,12 +62,6 @@ export default function MyBrands() {
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
       >
-        <AppSearchInput
-          value={searchQuery}
-          onChangeText={setSearchQuery}
-          placeholder="Search brand or SKU"
-        />
-
         {isEmpty ? (
           <View style={styles.stateCard}>
             {brandsQuery.isLoading ? (
@@ -96,9 +70,7 @@ export default function MyBrands() {
               <Text style={styles.stateText}>
                 {brandsQuery.isError
                   ? 'Unable to load your brands.'
-                  : deferredSearchQuery
-                    ? 'No brand or SKU matches this search.'
-                    : 'No brands assigned to you yet.'}
+                  : 'No brands assigned to you yet.'}
               </Text>
             )}
           </View>

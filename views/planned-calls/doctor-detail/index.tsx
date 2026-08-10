@@ -19,10 +19,10 @@ import { MonthlyCallSummary } from '../call-analytics/MonthlyCallSummary';
 import { MonthlyCoverageCard } from './MonthlyCoverageCard';
 // PlannedCallsCard hidden for now; the item type is still used by DoctorDetailData.
 import { PlannedCallItem } from './PlannedCallsCard';
+import { PreviousCallNotesCard } from './PreviousCallNotesCard';
 import { ProfessionalDetailsCard } from './ProfessionalDetailsCard';
 import { HistoryItem } from './RecentHistoryCard';
 import { StartCallButton } from './StartCallButton';
-import { ViewOnlyNotice } from './ViewOnlyNotice';
 
 export interface DoctorDetailData {
   id: string;
@@ -196,9 +196,9 @@ export default function DoctorDetail({
 
         {/* Planned Calls card hidden for now (placeholder schedule data). */}
 
-        {viewOnly ? (
-          <ViewOnlyNotice />
-        ) : completed ? (
+        {/* Opened from the Doctor List: a reference view, so no call actions at
+            all — and no notice saying so either. */}
+        {viewOnly ? null : completed ? (
           <CallCompletedCard />
         ) : (
           <View style={styles.buttonsRow}>
@@ -236,6 +236,12 @@ export default function DoctorDetail({
             </View>
           </View>
         )}
+
+        {/* What was noted last time. Renders nothing when there are no notes,
+            so a first-time doctor's screen is unchanged. */}
+        {!showAnalytics ? (
+          <PreviousCallNotesCard mieId={user?.mieId} doctorId={doctor.id} />
+        ) : null}
         {/* <ContactInfoCard /> */}
       </ScrollView>
 

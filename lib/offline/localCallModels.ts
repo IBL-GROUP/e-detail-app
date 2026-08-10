@@ -5,6 +5,7 @@ import type {
   DoctorCallSummaryResponse,
   EngagementBreakdown,
   EngagementSlice,
+  LastCallFeedback,
   MonthlyCallTotals,
 } from '@/api/calls';
 import type { DoctorDataRow } from '@/api/doctor';
@@ -28,10 +29,25 @@ import type { LocalCall } from './callLedger';
  * Once a refetch happens after the upload, the server's own copy takes over.
  */
 
-/** Calls this device recorded that the given server response cannot include. */
+/** An explicit reporting period, as the analytics screen selects one. */
+export interface LocalPeriod {
+  /** YYYY-MM-DD */
+  from: string;
+  /** YYYY-MM-DD */
+  to: string;
+}
+
+/**
+ * Calls this device recorded that the given server response cannot include.
+ *
+ * `period` scopes them the same way the server query does. Without it the
+ * current calendar month applies, which is what every caller but Analytics
+ * wants.
+ */
 export function pendingCalls(
   local: LocalCall[],
   serverFetchedAt: number,
+  period?: LocalPeriod,
 ): CallTrackingInput[] {
   return local
     .filter(({ call, syncedAt }) => {
@@ -40,6 +56,12 @@ export function pendingCalls(
       if (syncedAt != null && serverFetchedAt > 0 && syncedAt <= serverFetchedAt) {
         return false;
       }
+
+      if (period) {
+        const day = isoDate(callDate(call));
+        return day >= period.from && day <= period.to;
+      }
+
       return isThisMonth(callDate(call));
     })
     .map(({ call }) => call);
@@ -289,6 +311,46 @@ export function mergeDoctorRows(
   });
 }
 
+/**
+ * The most recent call notes for a doctor, preferring whichever is newer between
+ * the server's answer and this device's own calls.
+ *
+ * Not time-filtered: the previous call is whenever it happened. A local call
+ * only wins if it is actually more recent, so a synced note is never replaced by
+ * an older one still sitting in the ledger.
+ */
+export function mergeLastCallFeedback(
+  server: LastCallFeedback | null,
+  local: LocalCall[],
+  mieId: string | undefined,
+  doctorId: string | undefined,
+): LastCallFeedback | null {
+  if (!mieId || !doctorId) return server;
+
+  let best: LastCallFeedback | null = server;
+
+  for (const { call } of local) {
+    if (call.call_outcome !== 'completed') continue;
+    if (String(call.tsoid) !== String(mieId)) continue;
+    if (String(call.doctorid) !== String(doctorId)) continue;
+
+    const comment = (call.feedback_comment ?? '').trim();
+    const chips = (call.feedback ?? '').trim();
+    if (!comment && !chips) continue;
+
+    const date = isoDate(callDate(call));
+    if (best && date <= best.date) continue;
+
+    best = {
+      date,
+      feedback: chips || null,
+      feedbackComment: comment || null,
+    };
+  }
+
+  return best;
+}
+
 /** Doctors finished for the month, including calls only this device knows about. */
 export function mergeCompletedDoctorIds(
   server: string[] | undefined,
@@ -317,15 +379,18 @@ export function mergeMonthlyTotals(
   local: LocalCall[],
   mieId: string | undefined,
   fetchedAt: number,
+  period?: LocalPeriod,
 ): MonthlyCallTotals | undefined {
-  const extra = pendingCalls(local, fetchedAt).filter(
+  const extra = pendingCalls(local, fetchedAt, period).filter(
     (call) => !mieId || String(call.tsoid) === String(mieId),
   );
   if (!server && extra.length === 0) return server;
 
   return {
+    // Spreading keeps the period spans the server labelled the figures with.
+    ...server,
     thisMonth: (server?.thisMonth ?? 0) + extra.length,
-    // Last month is settled — nothing local can change it.
+    // The earlier span is settled — nothing local can change it.
     previousMonth: server?.previousMonth ?? 0,
   };
 }
@@ -341,8 +406,9 @@ export function mergeEngagement(
   local: LocalCall[],
   mieId: string | undefined,
   fetchedAt: number,
+  period?: LocalPeriod,
 ): EngagementBreakdown | undefined {
-  const extra = pendingCalls(local, fetchedAt).filter(
+  const extra = pendingCalls(local, fetchedAt, period).filter(
     (call) => !mieId || String(call.tsoid) === String(mieId),
   );
   if (!server && extra.length === 0) return server;

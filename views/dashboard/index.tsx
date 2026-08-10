@@ -23,18 +23,18 @@ const NAV_CARDS: {
     href: '/doctor-list',
   },
   {
+    // The rep's whole product book from products/brands — every brand and SKU
+    // they carry, not just what is currently being forced.
+    label: 'Brands & SKUs',
+    description: 'Every brand and SKU assigned to you',
+    iconName: 'pricetags-outline',
+    href: '/my-brands',
+  },
+  {
     label: 'View Content',
     description: 'Brands and SKUs you detail',
     iconName: 'albums-outline',
     href: '/content-library',
-  },
-  {
-    // The team's content narrowed to the specialties this rep's doctors hold,
-    // with those specialties named against each brand.
-    label: 'Your Brands Content',
-    description: 'Assigned to you, by specialty',
-    iconName: 'pricetags-outline',
-    href: '/my-brands',
   },
   {
     label: 'Call Reporting',

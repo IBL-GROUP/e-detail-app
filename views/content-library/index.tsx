@@ -1,4 +1,4 @@
-import { useDeferredValue, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import {
   ActivityIndicator,
   FlatList,
@@ -7,9 +7,9 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
+import { Ionicons } from '@expo/vector-icons';
 
 import { useTeamBrands, type TeamBrand } from '@/api/content';
-import { AppSearchInput } from '@/components/ui/AppSearchInput';
 import { ScreenLayout } from '@/components/ui/ScreenLayout';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/providers/AuthProvider';
@@ -23,30 +23,11 @@ import { BrandCard } from './BrandCard';
 export default function ContentLibrary() {
   const { user } = useAuth();
   const { width } = useWindowDimensions();
-  const [searchQuery, setSearchQuery] = useState('');
-  const deferredSearchQuery = useDeferredValue(searchQuery.trim());
   const brandsQuery = useTeamBrands(user?.teamId);
+  const brands = brandsQuery.data ?? [];
 
   // Three tiles across on a tablet/desktop, down to one on a phone.
   const columns = width >= 1000 ? 3 : width >= 640 ? 2 : 1;
-
-  const brands = useMemo<TeamBrand[]>(() => {
-    const all = brandsQuery.data ?? [];
-    const search = deferredSearchQuery.toLowerCase();
-    if (!search) return all;
-
-    // Match on the brand or any of its SKUs, and when the hit is on a SKU show
-    // only the SKUs that matched.
-    return all
-      .map((brand) => {
-        if (brand.brandName.toLowerCase().includes(search)) return brand;
-        const skus = brand.skus.filter((sku) =>
-          sku.skuName.toLowerCase().includes(search)
-        );
-        return skus.length > 0 ? { ...brand, skus } : null;
-      })
-      .filter((brand): brand is TeamBrand => brand !== null);
-  }, [brandsQuery.data, deferredSearchQuery]);
 
   const skuCount = useMemo(
     () => brands.reduce((total, brand) => total + brand.skus.length, 0),
@@ -78,12 +59,6 @@ export default function ContentLibrary() {
         showsVerticalScrollIndicator={false}
         ListHeaderComponent={
           <View style={styles.header}>
-            <AppSearchInput
-              value={searchQuery}
-              onChangeText={setSearchQuery}
-              placeholder="Search brand or SKU"
-            />
-
             {brandsQuery.isLoading ? (
               <View style={styles.stateCard}>
                 <ActivityIndicator color={Colors.primary} />
@@ -106,18 +81,33 @@ export default function ContentLibrary() {
               <View style={styles.stateCard}>
                 <Text style={styles.stateTitle}>No content assigned</Text>
                 <Text style={styles.stateText}>
-                  {deferredSearchQuery
-                    ? 'No brand or SKU matches this search.'
-                    : 'No brands have been assigned to your team yet.'}
+                  No brands have been assigned to your team yet.
                 </Text>
               </View>
             ) : null}
 
+            {/* The counts sit on their own surface rather than floating as bare
+                text above the grid. */}
             {brands.length > 0 ? (
-              <Text style={styles.summaryText}>
-                {brands.length} brand{brands.length === 1 ? '' : 's'} · {skuCount} SKU
-                {skuCount === 1 ? '' : 's'}
-              </Text>
+              <View style={styles.summaryBar}>
+                <View style={styles.summaryItem}>
+                  <Ionicons name="cube-outline" size={15} color={Colors.primary} />
+                  <Text style={styles.summaryValue}>{brands.length}</Text>
+                  <Text style={styles.summaryLabel}>
+                    brand{brands.length === 1 ? '' : 's'}
+                  </Text>
+                </View>
+
+                <View style={styles.summaryDivider} />
+
+                <View style={styles.summaryItem}>
+                  <Ionicons name="pricetag-outline" size={15} color={Colors.primary} />
+                  <Text style={styles.summaryValue}>{skuCount}</Text>
+                  <Text style={styles.summaryLabel}>
+                    SKU{skuCount === 1 ? '' : 's'}
+                  </Text>
+                </View>
+              </View>
             ) : null}
           </View>
         }
@@ -161,10 +151,37 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     textAlign: 'center',
   },
-  summaryText: {
+  summaryBar: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surface,
+    paddingHorizontal: 14,
+    paddingVertical: 8,
+  },
+  summaryItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  summaryValue: {
+    fontSize: 14,
+    fontWeight: '800',
+    color: Colors.text,
+  },
+  summaryLabel: {
     fontSize: 13,
     fontWeight: '600',
     color: Colors.textMuted,
+  },
+  summaryDivider: {
+    width: 1,
+    alignSelf: 'stretch',
+    backgroundColor: Colors.border,
   },
   footerSpacer: {
     height: 24,
