@@ -2,7 +2,9 @@ import { Colors } from '@/constants/theme';
 import { useArrival } from '@/lib/location/useArrival';
 import { useAuth } from '@/providers/AuthProvider';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
+import { useQueryClient } from '@tanstack/react-query';
 import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import { CallType, type CallKind } from '../callTypes';
 import { DASH } from '../mapDoctor';
@@ -79,8 +81,18 @@ export default function DoctorDetail({
 }: DoctorDetailProps) {
   const { user } = useAuth();
   const { arrived, arrival, toggleArrived, reset } = useArrival();
+  const queryClient = useQueryClient();
   const [isCancelVisible, setIsCancelVisible] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+
+  // Coming back to this doctor (from a call, or from the list after one) must
+  // re-read the month's calls: the cached summary was fetched before the call
+  // existed, and its 60s staleTime otherwise left the new call off the report.
+  useFocusEffect(
+    useCallback(() => {
+      void queryClient.invalidateQueries({ queryKey: ['doctor-call-summary'] });
+    }, [queryClient])
+  );
 
   // Doctor detail lives INSIDE the tab navigator, so router.back() walks the tab
   // history and can land on whichever tab was focused before — the dashboard,

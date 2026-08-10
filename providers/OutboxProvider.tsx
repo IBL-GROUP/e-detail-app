@@ -8,12 +8,14 @@ import {
   type ReactNode,
 } from 'react';
 import NetInfo from '@react-native-community/netinfo';
+import { useQueryClient } from '@tanstack/react-query';
 
 import {
   flushOutbox,
   getPendingCount,
   initOutbox,
   subscribeOutbox,
+  subscribeOutboxSynced,
 } from '@/lib/offline/outbox';
 
 interface OutboxContextValue {
@@ -28,8 +30,24 @@ const OutboxContext = createContext<OutboxContextValue>({
   flushNow: async () => {},
 });
 
+/**
+ * Query families read back from `call_tracking`. A call is written to the outbox
+ * first and only reaches the server on the next flush, so every one of these is
+ * out of date the instant a queued call syncs — the doctor's month summary in
+ * particular, which is why a just-made call was missing from the analytics until
+ * the cache went stale on its own.
+ */
+const CALL_DERIVED_QUERY_KEYS = [
+  ['doctor-call-summary'],
+  ['completed-doctors'],
+  ['monthly-call-totals'],
+  ['engagement'],
+  ['planned-doctors'],
+] as const;
+
 export function OutboxProvider({ children }: { children: ReactNode }) {
   const [pendingCount, setPendingCount] = useState(0);
+  const queryClient = useQueryClient();
 
   const refreshCount = useCallback(async () => {
     try {
@@ -56,6 +74,16 @@ export function OutboxProvider({ children }: { children: ReactNode }) {
       unsubscribe();
     };
   }, [refreshCount]);
+
+  // A queued call reached the server — drop the caches built from it so the
+  // screen the rep is looking at refetches instead of showing pre-call figures.
+  useEffect(() => {
+    return subscribeOutboxSynced(() => {
+      for (const queryKey of CALL_DERIVED_QUERY_KEYS) {
+        void queryClient.invalidateQueries({ queryKey });
+      }
+    });
+  }, [queryClient]);
 
   // Flush whenever connectivity is (re)gained.
   useEffect(() => {

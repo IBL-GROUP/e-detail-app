@@ -34,7 +34,12 @@ const FLUSH_BATCH_SIZE = 50;
 const MAX_REJECT_ATTEMPTS = 5;
 
 let isFlushing = false;
+// A flush asked for while one was already running. Dropping it left the call
+// that triggered it queued until the next reconnect or app start — long enough
+// for the rep to look at the analytics and not find their call there.
+let isFlushPending = false;
 const listeners = new Set<() => void>();
+const syncedListeners = new Set<() => void>();
 
 /** Initialize the store early (called at app start). */
 export async function initOutbox(): Promise<void> {
@@ -51,10 +56,31 @@ function notify() {
   });
 }
 
+function notifySynced() {
+  syncedListeners.forEach((listener) => {
+    try {
+      listener();
+    } catch {
+      // ignore listener errors
+    }
+  });
+}
+
 /** Subscribe to queue changes (e.g. to show a pending badge). Returns unsubscribe. */
 export function subscribeOutbox(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
+}
+
+/**
+ * Subscribe to calls actually LANDING on the server (at least one row accepted
+ * by a flush). Everything derived from call_tracking — the doctor's month
+ * summary, the completed list, the monthly totals — is stale the moment this
+ * fires, so this is what tells the app to refetch. Returns unsubscribe.
+ */
+export function subscribeOutboxSynced(listener: () => void): () => void {
+  syncedListeners.add(listener);
+  return () => syncedListeners.delete(listener);
 }
 
 /** Count of calls still waiting to sync. */
@@ -96,11 +122,15 @@ export async function enqueueCall(payload: CallTrackingInput): Promise<string> {
 
 /**
  * Push queued calls to the backend. Safe to call anytime: it does nothing when
- * offline, already flushing, or empty. Successfully synced rows are removed;
- * failures keep their row (attempts incremented) to retry later.
+ * offline or empty. Successfully synced rows are removed; failures keep their
+ * row (attempts incremented) to retry later. A call made WHILE a flush is
+ * running doesn't lose its flush — it is replayed once the current one ends.
  */
 export async function flushOutbox(): Promise<void> {
-  if (isFlushing) return;
+  if (isFlushing) {
+    isFlushPending = true;
+    return;
+  }
 
   const net = await NetInfo.fetch();
   if (!net.isConnected) return;
@@ -130,9 +160,11 @@ export async function flushOutbox(): Promise<void> {
     }
 
     const attemptsByClientId = new Map(rows.map((row) => [row.client_id, row.attempts]));
+    let syncedCount = 0;
     for (const result of response.results) {
       if (!result.clientId) continue;
       if (result.success) {
+        syncedCount += 1;
         await dbDelete(result.clientId);
       } else {
         const nextAttempts = (attemptsByClientId.get(result.clientId) ?? 0) + 1;
@@ -152,14 +184,25 @@ export async function flushOutbox(): Promise<void> {
       }
     }
     notify();
+    // The server now holds calls it didn't a moment ago — anything read from
+    // call_tracking has to be refetched.
+    if (syncedCount > 0) notifySynced();
 
     // If a full batch synced, there may be more queued — keep draining.
     if (rows.length === FLUSH_BATCH_SIZE) {
       isFlushing = false;
+      isFlushPending = false;
       await flushOutbox();
       return;
     }
   } finally {
     isFlushing = false;
+  }
+
+  // A call queued mid-flush missed this pass — run it now rather than leaving
+  // it for the next reconnect.
+  if (isFlushPending) {
+    isFlushPending = false;
+    await flushOutbox();
   }
 }

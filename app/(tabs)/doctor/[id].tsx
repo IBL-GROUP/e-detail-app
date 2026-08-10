@@ -44,6 +44,13 @@ export default function DoctorDetailScreen() {
 
   if (!doctorId || !name) return null;
 
+  const visitCount = Number(getParam(params.visitCount)) || 0;
+  // Absent (unclassified doctor) must stay null, not 0 — 0 would read as a
+  // real quota of zero and hide the circles for the wrong reason.
+  const maxVisits = getParam(params.maxVisits)
+    ? Number(getParam(params.maxVisits)) || null
+    : null;
+
   const doctor: DoctorDetailData = {
     id: doctorId,
     name,
@@ -57,12 +64,8 @@ export default function DoctorDetailScreen() {
     pmdcNumber: getParam(params.pmdc) || DASH,
     scheduledTime: getParam(params.scheduledTime),
     teamId: Number(getParam(params.teamId)) || undefined,
-    visitCount: Number(getParam(params.visitCount)) || 0,
-    // Absent (unclassified doctor) must stay null, not 0 — 0 would read as a
-    // real quota of zero and hide the circles for the wrong reason.
-    maxVisits: getParam(params.maxVisits)
-      ? Number(getParam(params.maxVisits)) || null
-      : null,
+    visitCount,
+    maxVisits,
     visitsChamber: Number(getParam(params.visitsChamber)) || 0,
     visitsGroup: Number(getParam(params.visitsGroup)) || 0,
     visitsParking: Number(getParam(params.visitsParking)) || 0,
@@ -71,11 +74,22 @@ export default function DoctorDetailScreen() {
 
   const completed = getParam(params.completed);
 
+  /**
+   * The doctor is FINISHED only when the month's class quota is met — an A4
+   * doctor needs four calls, not one. Keying this off the session's
+   * "a call was made" flag replaced the Arrived / Start Call buttons with the
+   * Call Completed card after a single call, so a rep still owed three visits
+   * had no way to make them. A doctor with no class quota keeps the old rule.
+   */
+  const quotaMet = maxVisits
+    ? visitCount >= maxVisits
+    : completed === '1' || isCallCompleted(doctorId, normalizedCallType);
+
   return (
     <DoctorDetail
       doctor={doctor}
       callType={normalizedCallType}
-      completed={completed === '1' || isCallCompleted(doctorId, normalizedCallType)}
+      completed={quotaMet}
       // Chamber or parking — carried through so the call is marked correctly.
       callKind={getParam(params.callKind) as CallKind | undefined}
       // Opened from the Doctor List (a reference view) — no call actions.

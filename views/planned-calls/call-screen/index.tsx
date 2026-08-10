@@ -14,6 +14,7 @@ import { DoctorCallSlide, useForcingSlides } from '@/api/content';
 import { useTeamSkus } from '@/api/sku';
 import { useInfiniteDoctors, useInfinitePlannedDoctors, type DoctorDataRow } from '@/api/doctor';
 import { useAuth } from '@/providers/AuthProvider';
+import { useLockBack } from '@/hooks/use-lock-back';
 import { enqueueCall } from '@/lib/offline/outbox';
 import { nearestClinicVicinity } from '@/lib/location/distance';
 import type { CallTrackingInput } from '@/api/calls';
@@ -135,6 +136,9 @@ export default function CallScreen({
   arrivedLocation,
 }: CallScreenProps) {
   const { user } = useAuth();
+  // A call in progress is locked: the hardware back button does nothing, so the
+  // only way out is forward through End Call (which records the call).
+  useLockBack();
   const isInstitutionCall = Boolean(institutionType);
   // What gets stored in call_tracking.institution_call_type: 'group' for an
   // institution call, otherwise the chamber/parking mark from the list.

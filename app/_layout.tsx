@@ -63,7 +63,12 @@ function AuthGate() {
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-        <Stack.Screen name="call/[id]" options={{ headerShown: false }} />
+        {/* A call in progress is locked — no header back, no swipe-back gesture.
+            The hardware back button is blocked in the screen itself. */}
+        <Stack.Screen
+          name="call/[id]"
+          options={{ headerShown: false, gestureEnabled: false }}
+        />
       </Stack>
     </SyncGate>
   );

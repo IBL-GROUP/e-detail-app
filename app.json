@@ -19,7 +19,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "versionCode": 13
+      "versionCode": 14
     },
     "web": {
       "output": "static",
@@ -54,7 +54,8 @@
         {
           "locationWhenInUsePermission": "Allow $(PRODUCT_NAME) to record your location when you mark yourself as arrived for a doctor call."
         }
-      ]
+      ],
+      "expo-font"
     ],
     "experiments": {
       "typedRoutes": true,
