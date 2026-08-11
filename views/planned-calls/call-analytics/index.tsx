@@ -1,3 +1,5 @@
+import { useDoctorCallSummary } from '@/api/calls';
+import { Tag } from '@/components/tag';
 import { AppColumnChart } from '@/components/ui/AppColumnChart';
 import { AppMetricCard } from '@/components/ui/AppMetricCard';
 import { Colors } from '@/constants/theme';
@@ -6,8 +8,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { Tag } from '@/components/tag';
-import { useDoctorCallSummary } from '@/api/calls';
 import { CallType } from '../callTypes';
 import { MonthlyCallSummary } from './MonthlyCallSummary';
 
@@ -480,7 +480,7 @@ export default function CallAnalytics({
 
           <View style={styles.sideColumn}>
             <View style={styles.card}>
-              <Text style={styles.sectionTitle}>Doctor&apos;s Feedback</Text>
+              <Text style={styles.sectionTitle}>Post Call Analysis</Text>
               <View style={styles.feedbackBox}>
                 <Text style={styles.feedbackText}>&quot;{feedback}&quot;</Text>
               </View>

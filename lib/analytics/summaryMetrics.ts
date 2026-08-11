@@ -1,10 +1,10 @@
 import { useMemo } from "react";
 
-import { useInfinitePlannedDoctors } from "@/api/doctor";
+import { useMonthlyCallTotals, type CallPeriod } from "@/api/calls";
 import { useAuth } from "@/providers/AuthProvider";
 
 /**
- * The four headline figures shown on Analytics.
+ * The three headline figures shown on Analytics.
  */
 export interface SummaryMetric {
   label: string;
@@ -15,29 +15,16 @@ export interface SummaryMetric {
 }
 
 /**
- * PLACEHOLDER DATA — not yet computed from call_tracking. Last card in the row,
- * so the two live figures lead.
+ * Seconds as the card shows them: under a minute stays in seconds, an exact
+ * number of minutes drops the seconds, otherwise both. "14m" reads as a round
+ * figure, "14m 20s" as a measured one — which is what this is.
  */
-const AVG_DURATION: SummaryMetric = {
-  label: "Avg Engagement Time",
-  value: "14m",
-  change: "-2%",
-  tone: "negative",
-};
-
-export interface MonthlyProgress {
-  /** Calls recorded this month that count toward the plan. */
-  made: number;
-  /** Calls the rep's doctor classes require this month. */
-  planned: number;
-  /** How much of the call plan is done, 0-100. Zero when nothing is planned. */
-  callPercent: number;
-  /** Assigned doctors called at least once this month. */
-  covered: number;
-  /** Every doctor assigned to this rep. */
-  doctors: number;
-  /** Share of the rep's doctors covered, 0-100. */
-  coveredPercent: number;
+function formatDuration(seconds: number): string {
+  const total = Math.max(0, Math.round(seconds));
+  if (total < 60) return `${total}s`;
+  const minutes = Math.floor(total / 60);
+  const rest = total % 60;
+  return rest === 0 ? `${minutes}m` : `${minutes}m ${rest}s`;
 }
 
 /** Whole percent of `part` out of `whole`; 0 when there is no whole. */
@@ -46,60 +33,60 @@ function share(part: number, whole: number) {
 }
 
 /**
- * This rep's month, in one pass over the doctor list they already have cached —
- * so it costs no extra request, works offline, and reports the same numbers the
- * Call Reporting list shows.
+ * The three headline figures on Analytics, all computed for the SELECTED
+ * PERIOD. Every one comes from /calls/monthly-totals — one request, one set of
+ * call_tracking rows — so the cards can never disagree with each other or with
+ * the "Calls Completed" card above them.
  *
- * CALLS: the plan is the sum of each doctor's class quota — an A4 doctor is 4
- * calls, an A2 is 2 — which the backend resolves per doctor↔rep from
- * doctor_tso_class_monthly_visit (falling back to the class master) and returns
- * as `MaxVisitCount`. `VisitCount` is the completed calls against that quota.
- * Doctors with no class carry no quota, so they count toward NEITHER side —
- * including their calls in "made" would push the figure past a plan that never
- * asked for them.
+ * Deliberately independent of the doctor list. That list is paginated for
+ * rendering, so reading totals from it reported whatever had been fetched so
+ * far (121 of 130 doctors) and was fixed to the current month besides.
  *
- * COVERAGE: a doctor is covered once the rep has called on them AT ALL this
- * month — one call is enough, whatever their class. So an A4 doctor at 1 of 4
- * calls is fully covered but only a quarter of the way through their quota,
- * which is why the two figures move independently. Every assigned doctor counts
- * toward the total here, classified or not.
+ * CALLS: completed calls in the period, against the plan — the sum of each
+ * doctor's class quota (an A4 doctor is 4 calls, an A2 is 2), resolved per
+ * doctor↔rep from doctor_tso_class_monthly_visit.
+ *
+ * COVERAGE: a doctor is covered once the rep has called on them AT ALL in the
+ * period — one call is enough, whatever their class. So the two figures move
+ * independently: an A4 doctor called once is fully covered but a quarter
+ * through their quota.
+ *
+ * The quota and the assigned-doctor count are monthly by nature, so they are
+ * read for the month the period starts in. Narrowing to a few days asks "how
+ * much of this month's plan did I cover in these days" — the days themselves
+ * carry no separate target.
  */
-export function useMonthlyProgress(): MonthlyProgress {
+export function useSummaryMetrics(
+  period?: CallPeriod,
+): readonly SummaryMetric[] {
   const { user } = useAuth();
-  const doctorsQuery = useInfinitePlannedDoctors({
-    mieId: user?.mieId,
-    teamId: user?.teamId,
-  });
+  const { data: totals } = useMonthlyCallTotals(user?.mieId, period);
 
-  return useMemo(() => {
-    const rows = doctorsQuery.data?.pages.flatMap((page) => page.data) ?? [];
+  const made = totals?.thisMonth ?? 0;
+  const planned = totals?.plannedCalls ?? 0;
+  const covered = totals?.thisMonthDoctorIds.length ?? 0;
+  const doctors = totals?.assignedDoctors ?? 0;
+  const callPercent = share(made, planned);
+  const coveredPercent = share(covered, doctors);
 
-    const totals = rows.reduce(
-      (running, row) => {
-        const quota = row.MaxVisitCount ?? 0;
-        const visits = row.VisitCount ?? 0;
-        return {
-          made: running.made + Math.min(visits, quota),
-          planned: running.planned + quota,
-          covered: running.covered + (visits > 0 ? 1 : 0),
-        };
-      },
-      { made: 0, planned: 0, covered: 0 },
-    );
+  /**
+   * Total slide time over the calls it was spent on. Uses the SAME completed
+   * calls the "Calls Completed" card counts, so the two figures can never
+   * disagree about how many calls the period held.
+   */
+  const calls = totals?.thisMonth ?? 0;
+  const avgSeconds = calls > 0 ? (totals?.thisMonthSeconds ?? 0) / calls : 0;
+  const prevCalls = totals?.previousMonth ?? 0;
+  const prevAvgSeconds =
+    prevCalls > 0 ? (totals?.previousMonthSeconds ?? 0) / prevCalls : 0;
 
-    return {
-      ...totals,
-      doctors: rows.length,
-      callPercent: share(totals.made, totals.planned),
-      coveredPercent: share(totals.covered, rows.length),
-    };
-  }, [doctorsQuery.data?.pages]);
-}
-
-/** The headline figures, with calls and doctor coverage computed live. */
-export function useSummaryMetrics(): readonly SummaryMetric[] {
-  const { made, planned, callPercent, covered, doctors, coveredPercent } =
-    useMonthlyProgress();
+  // Change against the same span a month back — the comparison the Calls
+  // Completed card already makes. No pill when there is nothing to compare to:
+  // a first month would otherwise show a meaningless +100%.
+  const avgChange =
+    prevAvgSeconds > 0
+      ? Math.round(((avgSeconds - prevAvgSeconds) / prevAvgSeconds) * 100)
+      : null;
 
   return useMemo(
     () => [
@@ -120,8 +107,34 @@ export function useSummaryMetrics(): readonly SummaryMetric[] {
         tone:
           coveredPercent >= 100 ? ("positive" as const) : ("neutral" as const),
       },
-      AVG_DURATION,
+      {
+        label: "Avg Engagement Time",
+        // Total slide time / calls made. A period with no calls has no average
+        // to state — a dash, not a zero, which would read as "no engagement".
+        value: calls > 0 ? formatDuration(avgSeconds) : "—",
+        change:
+          avgChange === null
+            ? undefined
+            : `${avgChange > 0 ? "+" : ""}${avgChange}%`,
+        // Longer detailing is the good direction here.
+        tone:
+          avgChange === null || avgChange === 0
+            ? ("neutral" as const)
+            : avgChange > 0
+              ? ("positive" as const)
+              : ("negative" as const),
+      },
     ],
-    [made, planned, callPercent, covered, doctors, coveredPercent],
+    [
+      made,
+      planned,
+      callPercent,
+      covered,
+      doctors,
+      coveredPercent,
+      calls,
+      avgSeconds,
+      avgChange,
+    ],
   );
 }

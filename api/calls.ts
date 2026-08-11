@@ -133,6 +133,26 @@ export const useCompletedDoctorIds = (mieId?: string) => {
 export interface MonthlyCallTotals {
   thisMonth: number;
   previousMonth: number;
+  /**
+   * Total slide time across those calls. Kept as a total rather than an average
+   * so calls still sitting in the outbox can be added to both halves before it
+   * is divided.
+   */
+  thisMonthSeconds: number;
+  previousMonthSeconds: number;
+  /**
+   * Doctors called at least once in the current span. Ids, not a count, so
+   * unsynced calls can be unioned in without double-counting a doctor the
+   * server already knows about.
+   */
+  thisMonthDoctorIds: string[];
+  /**
+   * The rep's standing plan for the month the span starts in: calls their
+   * doctors' classes require, and every doctor assigned to them. Server-side
+   * over the whole list, so Analytics doesn't inherit the doctor list's paging.
+   */
+  plannedCalls: number;
+  assignedDoctors: number;
   /** The spans each figure covers (YYYY-MM-DD), so they can be labelled. */
   currentFrom?: string | null;
   currentTo?: string | null;
@@ -168,6 +188,11 @@ export const getMonthlyCallTotals = async (
   return {
     thisMonth: res.thisMonth ?? 0,
     previousMonth: res.previousMonth ?? 0,
+    thisMonthSeconds: res.thisMonthSeconds ?? 0,
+    previousMonthSeconds: res.previousMonthSeconds ?? 0,
+    thisMonthDoctorIds: res.thisMonthDoctorIds ?? [],
+    plannedCalls: res.plannedCalls ?? 0,
+    assignedDoctors: res.assignedDoctors ?? 0,
     currentFrom: res.currentFrom ?? null,
     currentTo: res.currentTo ?? null,
     previousFrom: res.previousFrom ?? null,

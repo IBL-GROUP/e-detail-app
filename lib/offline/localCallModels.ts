@@ -386,12 +386,35 @@ export function mergeMonthlyTotals(
   );
   if (!server && extra.length === 0) return server;
 
+  // Slide time from the same calls, so the average stays over exactly the calls
+  // counted above.
+  const extraSeconds = extra.reduce(
+    (total, call) => total + (Number(call.slides_total_time_seconds) || 0),
+    0,
+  );
+
+  // Union rather than sum: a doctor this device called who the server already
+  // counted must not be covered twice.
+  const doctorIds = new Set(server?.thisMonthDoctorIds ?? []);
+  for (const call of extra) {
+    const id = String(call.doctorid ?? '');
+    if (id) doctorIds.add(id);
+  }
+
   return {
     // Spreading keeps the period spans the server labelled the figures with.
     ...server,
     thisMonth: (server?.thisMonth ?? 0) + extra.length,
+    thisMonthSeconds: (server?.thisMonthSeconds ?? 0) + extraSeconds,
+    thisMonthDoctorIds: [...doctorIds],
     // The earlier span is settled — nothing local can change it.
     previousMonth: server?.previousMonth ?? 0,
+    previousMonthSeconds: server?.previousMonthSeconds ?? 0,
+    // The plan is the server's to state. With no response yet there is no
+    // target to divide by, and the cards show a 0 denominator rather than
+    // inventing one.
+    plannedCalls: server?.plannedCalls ?? 0,
+    assignedDoctors: server?.assignedDoctors ?? 0,
   };
 }
 

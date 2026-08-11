@@ -179,8 +179,6 @@ export default function AnalyticsScreen() {
   const [isExporting, setIsExporting] = useState(false);
   const [view, setView] = useState<PerformanceView>('call');
   const isSales = view === 'sales';
-  // Same figures the metric grid renders, so the PDF matches the screen.
-  const metrics = useSummaryMetrics();
   /**
    * The selected period as the API wants it. Memoised on the primitives rather
    * than on `period`, so a re-render with the same days doesn't produce a new
@@ -190,6 +188,8 @@ export default function AnalyticsScreen() {
     () => ({ from: toIsoDay(startDate), to: toIsoDay(endDate) }),
     [startDate, endDate],
   );
+  // Same figures the metric grid renders, so the PDF matches the screen.
+  const metrics = useSummaryMetrics(callPeriod);
   // Calls completed in the period, against the same length of time before it.
   const { data: monthlyCompleted } = useMonthlyCallTotals(user?.mieId, callPeriod);
   // Average detailing time per call in the period, by specialty and by brand.

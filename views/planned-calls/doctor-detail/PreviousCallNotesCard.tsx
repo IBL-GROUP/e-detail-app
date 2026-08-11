@@ -54,7 +54,7 @@ export function PreviousCallNotesCard({
 
       {chips.length > 0 ? (
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Feedback</Text>
+          <Text style={styles.sectionLabel}>Last Feedback</Text>
           <View style={styles.chipRow}>
             {chips.map((chip) => (
               <Tag key={chip} label={chip} tone="neutral" style={styles.chip} />
@@ -62,6 +62,10 @@ export function PreviousCallNotesCard({
           </View>
         </View>
       ) : null}
+
+      {/* Only when both halves are present — a card showing one of them has
+          nothing to divide. */}
+      {chips.length > 0 && comment ? <View style={styles.divider} /> : null}
 
       {comment ? (
         <View style={styles.section}>
@@ -115,16 +119,25 @@ const styles = StyleSheet.create({
     gap: 6,
   },
   sectionLabel: {
-    fontSize: 11,
+    fontSize: 12,
     fontWeight: '800',
     letterSpacing: 0.6,
     textTransform: 'uppercase',
     color: Colors.textMuted,
+    marginBottom: 2,
   },
   chipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
+  },
+  // Runs the full width of the card — the 16px padding is cancelled so the rule
+  // splits the card rather than floating inside it.
+  divider: {
+    height: StyleSheet.hairlineWidth,
+    backgroundColor: Colors.border,
+    marginHorizontal: -16,
+    marginVertical: 2,
   },
   chip: {
     borderRadius: 999,
