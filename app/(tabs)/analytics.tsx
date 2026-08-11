@@ -4,24 +4,24 @@ import { AppButton } from '@/components/ui/AppButton';
 import { AppChartCard } from '@/components/ui/AppChartCard';
 import { AppLineChart, LineChartDataPoint } from '@/components/ui/AppLineChart';
 import { SummaryMetricsGrid } from '@/components/ui/SummaryMetricsGrid';
+import {
+  AppSkeleton,
+  AppSkeletonChart,
+  AppSkeletonStat,
+} from '@/components/ui/AppSkeleton';
 import { AppSegmentedToggle, type SegmentedOption } from '@/components/ui/AppSegmentedToggle';
 import { ScreenLayout } from '@/components/ui/ScreenLayout';
 import { Colors } from '@/constants/theme';
 import { exportAnalyticsPdf, type BreakdownRow } from '@/lib/analytics/exportPdf';
 import { useSummaryMetrics } from '@/lib/analytics/summaryMetrics';
-import {
-  SALES_BY_BRAND,
-  SALES_BY_BRICK,
-  SALES_BY_SKU,
-  SALES_METRICS,
-  SALES_MONTHLY,
-} from '@/lib/analytics/salesDemo';
+import { useMieSales, formatAmount, type SalesSlice } from '@/api/sales';
 import {
   useEngagement,
   useMonthlyCallTotals,
   type CallPeriod,
   type EngagementSlice,
 } from '@/api/calls';
+import type { SummaryMetric } from '@/lib/analytics/summaryMetrics';
 import { useAuth } from '@/providers/AuthProvider';
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
@@ -86,16 +86,23 @@ const PERFORMANCE_VIEWS: SegmentedOption<PerformanceView>[] = [
   { key: 'sales', label: 'Sales Performance', icon: 'cash-outline' },
 ];
 
-/** The Sales view's breakdowns — one card each, in this order. */
-const SALES_BREAKDOWNS: {
-  title: string;
-  icon: keyof typeof Ionicons.glyphMap;
-  data: ColumnChartPoint[];
-}[] = [
-  { title: 'Sales by Brand', icon: 'cube-outline', data: SALES_BY_BRAND },
-  { title: 'Sales by SKU', icon: 'pricetag-outline', data: SALES_BY_SKU },
-  { title: 'Sales by Brick', icon: 'map-outline', data: SALES_BY_BRICK },
-];
+/**
+ * Most bars a sales breakdown shows. A rep's brick list runs to 24 and their SKU
+ * list further; past this the chart is unreadable and the tail is rounding.
+ */
+const SALES_BREAKDOWN_LIMIT = 8;
+
+/** A sales breakdown as the column chart wants it — the amount above each bar. */
+function toSalesColumns(slices: SalesSlice[]): ColumnChartPoint[] {
+  return slices
+    .filter((slice) => Number(slice.amount) > 0)
+    .slice(0, SALES_BREAKDOWN_LIMIT)
+    .map((slice) => ({
+      label: slice.name,
+      value: Number(slice.amount) || 0,
+      topLabel: formatAmount(Number(slice.amount) || 0),
+    }));
+}
 
 /** YYYY-MM-DD in LOCAL time — toISOString would shift the day across UTC. */
 function toIsoDay(date: Date) {
@@ -195,6 +202,76 @@ export default function AnalyticsScreen() {
   // Average detailing time per call in the period, by specialty and by brand.
   const { data: engagement } = useEngagement(user?.mieId, callPeriod);
   /**
+   * Brick-wise sales for the same period. Only fetched for the Sales view — it
+   * queries the data warehouse and takes seconds, so a rep who never opens the
+   * tab never pays for it.
+   */
+  const salesQuery = useMieSales(user?.mieId, isSales ? callPeriod : undefined);
+  const sales = salesQuery.data;
+  /**
+   * True while the period's sales are still being fetched and nothing is cached
+   * for it yet. A cold request runs the better part of a minute, so every figure
+   * on this view is a skeleton until it lands — showing 0 in the meantime would
+   * be indistinguishable from a period that genuinely had no sales.
+   */
+  const isSalesLoading = isSales && salesQuery.isPending;
+
+  /**
+   * The three breakdown cards, in the order the Sales view shows them.
+   *
+   * Brand is always rendered even though the sales query carries no brand column
+   * yet — it shows its empty state rather than disappearing, so the layout stays
+   * put and the gap is visible. It fills in on its own if `d.brands` is added to
+   * the query server-side.
+   */
+  const salesBreakdowns = useMemo(
+    () => [
+      {
+        title: 'Sales by Brand',
+        icon: 'cube-outline' as const,
+        data: toSalesColumns(sales?.byBrand ?? []),
+      },
+      {
+        title: 'Sales by SKU',
+        icon: 'pricetag-outline' as const,
+        data: toSalesColumns(sales?.bySku ?? []),
+      },
+      {
+        title: 'Sales by Brick',
+        icon: 'map-outline' as const,
+        data: toSalesColumns(sales?.byBrick ?? []),
+      },
+    ],
+    [sales],
+  );
+
+  /**
+   * The Sales headline row. There is no target in the source data, so this
+   * reports what the period actually did — units, the territory it came from,
+   * and where the month lands at the current rate — rather than progress toward
+   * a number nobody supplies.
+   */
+  const salesMetrics = useMemo<SummaryMetric[]>(() => {
+    const amount = sales?.currentAmount ?? 0;
+    // Days covered so far vs the whole month, so the projection scales the
+    // period's run rate rather than assuming the month is complete.
+    const daysCovered = Math.max(1, period.toDay - period.fromDay + 1);
+    const monthLength = daysInMonth(period.year, period.month);
+    const projected = (amount / daysCovered) * monthLength;
+    const brickCount = (sales?.byBrick ?? []).filter((b) => b.amount > 0).length;
+
+    return [
+      { label: 'Units Sold', value: (sales?.currentQty ?? 0).toLocaleString(), tone: 'neutral' },
+      { label: 'Bricks with Sales', value: String(brickCount), tone: 'neutral' },
+      {
+        label: 'Expected Sales for the Month',
+        value: formatAmount(projected),
+        change: `${daysCovered} of ${monthLength} days`,
+        tone: 'neutral',
+      },
+    ];
+  }, [sales, period]);
+  /**
    * Prefer the spans the server reported the figures for; before the first
    * response lands, fall back to the period the pickers are showing. The span
    * is named in brackets so the label says both what it is and what it covers.
@@ -230,14 +307,14 @@ export default function AnalyticsScreen() {
           ? {
               dateLabel: formatRangeLabel(startDate, endDate),
               viewLabel: 'Sales Performance',
-              metrics: SALES_METRICS,
+              metrics: salesMetrics,
               monthly: {
                 title: 'Total Sales',
-                thisMonth: SALES_MONTHLY.thisMonth,
-                previousMonth: SALES_MONTHLY.previousMonth,
+                thisMonth: formatAmount(sales?.currentAmount ?? 0),
+                previousMonth: formatAmount(sales?.previousAmount ?? 0),
               },
               // The same three cards the Sales view shows, in the same order.
-              breakdowns: SALES_BREAKDOWNS.map((breakdown) => ({
+              breakdowns: salesBreakdowns.map((breakdown) => ({
                 title: breakdown.title,
                 rows: toRows(breakdown.data),
               })),
@@ -384,37 +461,63 @@ export default function AnalyticsScreen() {
           <View style={styles.rfiStatBox}>
             {/* Labelled with the span the figure actually covers — the period is
                 a day range, so "This Month" was only ever right by accident. */}
-            <Text style={styles.rfiStatLabel}>
-              {isSales ? 'Current Month' : currentSpanLabel}
-            </Text>
-            <Text style={styles.rfiStatValue}>
-              {isSales ? SALES_MONTHLY.thisMonth : monthlyCompleted?.thisMonth ?? 0}
-            </Text>
+            <Text style={styles.rfiStatLabel}>{currentSpanLabel}</Text>
+            {isSalesLoading ? (
+              <AppSkeleton width={104} height={26} />
+            ) : (
+              <Text style={styles.rfiStatValue}>
+                {isSales
+                  ? formatAmount(sales?.currentAmount ?? 0)
+                  : monthlyCompleted?.thisMonth ?? 0}
+              </Text>
+            )}
           </View>
 
           <View style={styles.rfiStatBox}>
-            <Text style={styles.rfiStatLabel}>
-              {isSales ? 'Previous Month' : previousSpanLabel}
-            </Text>
-            <Text style={styles.rfiStatValue}>
-              {isSales
-                ? SALES_MONTHLY.previousMonth
-                : monthlyCompleted?.previousMonth ?? 0}
-            </Text>
+            <Text style={styles.rfiStatLabel}>{previousSpanLabel}</Text>
+            {isSalesLoading ? (
+              <AppSkeleton width={104} height={26} />
+            ) : (
+              <Text style={styles.rfiStatValue}>
+                {isSales
+                  ? formatAmount(sales?.previousAmount ?? 0)
+                  : monthlyCompleted?.previousMonth ?? 0}
+              </Text>
+            )}
           </View>
 
           {/* Sales only: how the two compare, so the reader doesn't have to do
-              the arithmetic between the boxes either side of it. */}
+              the arithmetic between the boxes either side of it. A dash when the
+              previous period sold nothing — there is no growth from zero. */}
           {isSales ? (
             <View style={styles.rfiStatBox}>
               <Text style={styles.rfiStatLabel}>Growth</Text>
-              <Text style={styles.rfiStatValue}>{SALES_MONTHLY.growth}</Text>
+              {isSalesLoading ? (
+                <AppSkeleton width={72} height={26} />
+              ) : (
+                <Text style={styles.rfiStatValue}>
+                  {sales?.growthPct == null
+                    ? '—'
+                    : `${sales.growthPct > 0 ? '+' : ''}${sales.growthPct}%`}
+                </Text>
+              )}
             </View>
           ) : null}
         </View>
       </View>
 
-      <SummaryMetricsGrid metrics={isSales ? SALES_METRICS : metrics} />
+      {isSalesLoading ? (
+        // Same 3-up shape the real cards take, so nothing jumps when they land.
+        <View style={styles.metricSkeletonRow}>
+          {[0, 1, 2].map((index) => (
+            <View key={index} style={styles.metricSkeletonCell}>
+              <AppSkeletonStat labelWidth={index === 2 ? 110 : 70} />
+            </View>
+          ))}
+        </View>
+      ) : (
+        <SummaryMetricsGrid metrics={isSales ? salesMetrics : metrics} />
+      )}
 
       {SHOW_RFI && (
       <View style={styles.rfiCard}>
@@ -472,7 +575,7 @@ export default function AnalyticsScreen() {
         {isSales ? (
           // Sales breaks down three ways; calls break down two. Rendering them
           // as separate sets beats forcing one set of cards to be both.
-          SALES_BREAKDOWNS.map((breakdown) => (
+          salesBreakdowns.map((breakdown) => (
             <AppChartCard
               key={breakdown.title}
               title={breakdown.title}
@@ -482,7 +585,15 @@ export default function AnalyticsScreen() {
               chartWrapperStyle={styles.barChartWrapper}
               style={styles.chartCard}
             >
-              <AppColumnChart data={breakdown.data} height={210} />
+              {isSalesLoading ? (
+                <AppSkeletonChart bars={5} height={210} />
+              ) : breakdown.data.length > 0 ? (
+                <AppColumnChart data={breakdown.data} height={210} />
+              ) : (
+                <Text style={styles.chartEmpty}>
+                  No sales recorded in this period.
+                </Text>
+              )}
             </AppChartCard>
           ))
         ) : (
@@ -768,5 +879,20 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     fontSize: 13,
     fontWeight: '600',
+  },
+  // Mirrors SummaryMetricsGrid's layout so the skeletons occupy the same space
+  // the real metric cards will, and nothing shifts when they resolve.
+  metricSkeletonRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  metricSkeletonCell: {
+    flexGrow: 1,
+    flexBasis: '28%',
+    minWidth: 150,
+    backgroundColor: Colors.surface,
+    borderRadius: 16,
+    padding: 18,
   },
 });
