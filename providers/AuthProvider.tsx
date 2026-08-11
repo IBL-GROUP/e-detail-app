@@ -8,7 +8,13 @@ import {
 } from 'react';
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
-import axios from '@/config/axios';
+import axios, { setUnauthorizedHandler } from '@/config/axios';
+import {
+  setAccessToken,
+  isTokenExpired,
+  isOfflineSessionToken,
+  OFFLINE_TOKEN_PREFIX,
+} from '@/lib/auth/tokenStore';
 import {
   saveOfflineCredential,
   verifyOfflineCredential,
@@ -70,6 +76,10 @@ const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 interface LoginResponse {
   success: boolean;
   message?: string;
+  /** Signed by the backend; sent as `Authorization: Bearer <token>` thereafter. */
+  token: string;
+  /** Human-readable lifetime, e.g. '24h'. Informational only. */
+  expiresIn?: string;
   user: {
     userId: number | string;
     username: string;
@@ -118,6 +128,11 @@ async function apiLogin(
   if (!payload?.success || !payload.user) {
     throw new Error(payload?.message || 'Invalid username or password');
   }
+  // Without a token nothing else in the API is reachable, so treat it as a
+  // failed sign-in rather than letting the rep into an app that can't sync.
+  if (!payload.token) {
+    throw new Error('Sign-in failed: the server did not issue a session token.');
+  }
 
   const { user: u } = payload;
   if (u.mieId == null || u.teamId == null) {
@@ -137,10 +152,7 @@ async function apiLogin(
     teamId: Number(u.teamId),
   };
 
-  return {
-    token: `session-${user.userId}-${Date.now()}`,
-    user,
-  };
+  return { token: payload.token, user };
 }
 
 interface OfflineUsersResponse {
@@ -188,7 +200,10 @@ function offlineRecordToSession(rec: OfflineUserRecord): PersistedSession {
     mieId: String(rec.mieId),
     teamId: Number(rec.teamId),
   };
-  return { token: `offline-${user.userId}-${Date.now()}`, user };
+  // No server-issued token exists offline. The placeholder marks the session as
+  // local-only: it unlocks the app (whose data is all cached on-device) but is
+  // never sent to the API, and the rep must sign in online to sync again.
+  return { token: `${OFFLINE_TOKEN_PREFIX}${user.userId}-${Date.now()}`, user };
 }
 
 export async function readStoredSession(): Promise<PersistedSession | null> {
@@ -275,8 +290,26 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         return;
       }
 
-      setToken(storedSession?.token ?? null);
-      setUser(storedSession?.user ?? null);
+      const storedToken = storedSession?.token ?? null;
+      // A server token older than its 24h life is dead — drop the session so the
+      // rep is asked to sign in rather than meeting a 401 on their first call.
+      // An offline placeholder is exempt: it was never a server token, and the
+      // rep may still be offline with a full day's cached data to work from.
+      const expired =
+        storedToken != null &&
+        !isOfflineSessionToken(storedToken) &&
+        isTokenExpired(storedToken);
+
+      if (expired) {
+        await writeStoredSession(null);
+        setAccessToken(null);
+        setToken(null);
+        setUser(null);
+      } else {
+        setAccessToken(storedToken);
+        setToken(storedToken);
+        setUser(storedSession?.user ?? null);
+      }
       setIsHydrated(true);
     };
 
@@ -305,16 +338,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const username = toLoginIdentifier(rawId);
     try {
       const nextSession = await apiLogin(username, password);
+      setAccessToken(nextSession.token);
       setToken(nextSession.token);
       setUser(nextSession.user);
       await writeStoredSession(nextSession);
       // Cache a verifiable credential so this user can log in offline later.
-      await saveOfflineCredential(
-        username,
-        password,
-        nextSession.token,
-        nextSession.user,
-      );
+      await saveOfflineCredential(username, password, nextSession.user);
       // Refresh the login mirror + planned bulk after a successful online login
       // (best-effort; doesn't block the login).
       void bootstrapOfflineUsers();
@@ -327,6 +356,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const mirrorRecord = await verifyOfflineUser(username, password);
         if (mirrorRecord) {
           const session = offlineRecordToSession(mirrorRecord);
+          setAccessToken(session.token);
           setToken(session.token);
           setUser(session.user);
           await writeStoredSession(session);
@@ -335,6 +365,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // 2) Fallback: this device's last online user (salted-hash cache).
         const offlineSession = await verifyOfflineCredential(username, password);
         if (offlineSession) {
+          setAccessToken(offlineSession.token);
           setToken(offlineSession.token);
           setUser(offlineSession.user);
           await writeStoredSession(offlineSession);
@@ -357,10 +388,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // per rep (mieId/teamId), so a different rep signing in here won't see this
     // rep's cached data (they fetch/sync their own). When online, screens
     // refetch the latest.
+    setAccessToken(null);
     setToken(null);
     setUser(null);
     await writeStoredSession(null);
   };
+
+  // The backend rejected our token (expired after 24h, or invalid). End the
+  // session so the rep is taken to the login screen.
+  //
+  // The call outbox is deliberately NOT touched: queued calls stay on disk and
+  // upload on the next flush once they sign back in. A 401 arrives as a thrown
+  // request error, which the flush treats as a retryable failure — rows are kept,
+  // never dropped — so an expired token can't cost a rep their day's calls.
+  useEffect(() => {
+    setUnauthorizedHandler(() => {
+      void logout();
+    });
+    return () => setUnauthorizedHandler(null);
+  }, []);
 
   // Change the signed-in user's password. Updates the server, then refreshes the
   // on-device offline credential so offline login works with the new password.
@@ -381,12 +427,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         'Failed to change password. Please try again.';
       throw new Error(message);
     }
-    await saveOfflineCredential(
-      user.username,
-      newPassword,
-      token ?? `session-${user.userId}`,
-      user,
-    );
+    await saveOfflineCredential(user.username, newPassword, user);
   };
 
   const value = useMemo<AuthContextValue>(

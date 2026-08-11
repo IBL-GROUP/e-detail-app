@@ -3,6 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Crypto from 'expo-crypto';
 
 import type { AuthUser } from '@/providers/AuthProvider';
+import { OFFLINE_TOKEN_PREFIX } from '@/lib/auth/tokenStore';
 
 /**
  * Offline login support. After a successful ONLINE login we store the user plus
@@ -16,7 +17,6 @@ interface OfflineCredential {
   username: string; // lowercased
   salt: string;
   hash: string;
-  token: string;
   user: AuthUser;
 }
 
@@ -67,11 +67,16 @@ async function writeCredential(cred: OfflineCredential | null): Promise<void> {
   }
 }
 
-/** Persist a verifiable credential after a successful online login. */
+/**
+ * Persist a verifiable credential after a successful online login.
+ *
+ * The access token is deliberately NOT stored: it expires within a day and is
+ * useless to an offline session, which cannot reach the API anyway. Keeping a
+ * live bearer token sitting on the device would be a liability for no gain.
+ */
 export async function saveOfflineCredential(
   username: string,
   password: string,
-  token: string,
   user: AuthUser,
 ): Promise<void> {
   const salt = Crypto.randomUUID();
@@ -80,7 +85,6 @@ export async function saveOfflineCredential(
     username: username.trim().toLowerCase(),
     salt,
     hash,
-    token,
     user,
   });
 }
@@ -98,8 +102,12 @@ export async function verifyOfflineCredential(
   if (cred.username !== username.trim().toLowerCase()) return null;
   const hash = await hashPassword(password, cred.salt);
   if (hash !== cred.hash) return null;
-  // Fresh token for this offline session.
-  return { token: `offline-${cred.user.userId}-${Date.now()}`, user: cred.user };
+  // A local-only marker, not a server token — see tokenStore.OFFLINE_TOKEN_PREFIX.
+  // It unlocks the cached data on this device; it is never sent to the API.
+  return {
+    token: `${OFFLINE_TOKEN_PREFIX}${cred.user.userId}-${Date.now()}`,
+    user: cred.user,
+  };
 }
 
 /** Remove the cached credential (e.g. on logout). */
