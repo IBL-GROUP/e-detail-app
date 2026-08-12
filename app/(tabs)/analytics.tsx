@@ -1,27 +1,27 @@
-import { AppColumnChart, ColumnChartPoint } from '@/components/ui/AppColumnChart';
-import { AppMonthSheet, AppDayRangeSheet, daysInMonth } from '@/components/ui/AppPeriodSheets';
-import { AppButton } from '@/components/ui/AppButton';
-import { AppChartCard } from '@/components/ui/AppChartCard';
-import { AppLineChart, LineChartDataPoint } from '@/components/ui/AppLineChart';
-import { SummaryMetricsGrid } from '@/components/ui/SummaryMetricsGrid';
-import {
-  AppSkeleton,
-  AppSkeletonChart,
-  AppSkeletonStat,
-} from '@/components/ui/AppSkeleton';
-import { AppSegmentedToggle, type SegmentedOption } from '@/components/ui/AppSegmentedToggle';
-import { ScreenLayout } from '@/components/ui/ScreenLayout';
-import { Colors } from '@/constants/theme';
-import { exportAnalyticsPdf, type BreakdownRow } from '@/lib/analytics/exportPdf';
-import { useSummaryMetrics } from '@/lib/analytics/summaryMetrics';
-import { useMieSales, formatAmount, type SalesSlice } from '@/api/sales';
 import {
   useEngagement,
   useMonthlyCallTotals,
   type CallPeriod,
   type EngagementSlice,
 } from '@/api/calls';
+import { formatAmount, useMieSales, type SalesSlice } from '@/api/sales';
+import { AppButton } from '@/components/ui/AppButton';
+import { AppChartCard } from '@/components/ui/AppChartCard';
+import { AppColumnChart, ColumnChartPoint } from '@/components/ui/AppColumnChart';
+import { AppLineChart, LineChartDataPoint } from '@/components/ui/AppLineChart';
+import { AppDayRangeSheet, AppMonthSheet, daysInMonth } from '@/components/ui/AppPeriodSheets';
+import { AppSegmentedToggle, type SegmentedOption } from '@/components/ui/AppSegmentedToggle';
+import {
+  AppSkeleton,
+  AppSkeletonChart,
+  AppSkeletonStat,
+} from '@/components/ui/AppSkeleton';
+import { ScreenLayout } from '@/components/ui/ScreenLayout';
+import { SummaryMetricsGrid } from '@/components/ui/SummaryMetricsGrid';
+import { Colors } from '@/constants/theme';
+import { exportAnalyticsPdf, type BreakdownRow } from '@/lib/analytics/exportPdf';
 import type { SummaryMetric } from '@/lib/analytics/summaryMetrics';
+import { useSummaryMetrics } from '@/lib/analytics/summaryMetrics';
 import { useAuth } from '@/providers/AuthProvider';
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
@@ -87,16 +87,19 @@ const PERFORMANCE_VIEWS: SegmentedOption<PerformanceView>[] = [
 ];
 
 /**
- * Most bars a sales breakdown shows. A rep's brick list runs to 24 and their SKU
- * list further; past this the chart is unreadable and the tail is rounding.
+ * A sales breakdown as the column chart wants it — the amount above each bar.
+ *
+ * EVERY category is returned, not a top-N slice: a rep with 29 bricks selling
+ * needs to see all 29, and truncating silently made the chart disagree with the
+ * totals above it. AppColumnChart stops squeezing past its minimum slot width
+ * and scrolls horizontally instead, so a long tail stays readable.
+ *
+ * Categories with no sales are dropped — they would be zero-height bars taking
+ * up width, and nothing is lost by omitting them.
  */
-const SALES_BREAKDOWN_LIMIT = 8;
-
-/** A sales breakdown as the column chart wants it — the amount above each bar. */
 function toSalesColumns(slices: SalesSlice[]): ColumnChartPoint[] {
   return slices
     .filter((slice) => Number(slice.amount) > 0)
-    .slice(0, SALES_BREAKDOWN_LIMIT)
     .map((slice) => ({
       label: slice.name,
       value: Number(slice.amount) || 0,
@@ -246,10 +249,18 @@ export default function AnalyticsScreen() {
   );
 
   /**
-   * The Sales headline row. There is no target in the source data, so this
-   * reports what the period actually did — units, the territory it came from,
-   * and where the month lands at the current rate — rather than progress toward
-   * a number nobody supplies.
+   * The rep's biggest customers this period. The endpoint already returns them
+   * ranked by value across every customer they sold to (four figures of them),
+   * so this is just the head of that list.
+   */
+  const topCustomers = useMemo(
+    () => (sales?.byCustomer ?? []).filter((c) => c.amount > 0).slice(0, 10),
+    [sales],
+  );
+
+  /**
+   * The Sales headline row: the month's target, how far through it the period
+   * is, where the month lands at this rate, and what made it up.
    */
   const salesMetrics = useMemo<SummaryMetric[]>(() => {
     const amount = sales?.currentAmount ?? 0;
@@ -258,16 +269,41 @@ export default function AnalyticsScreen() {
     const daysCovered = Math.max(1, period.toDay - period.fromDay + 1);
     const monthLength = daysInMonth(period.year, period.month);
     const projected = (amount / daysCovered) * monthLength;
-    const brickCount = (sales?.byBrick ?? []).filter((b) => b.amount > 0).length;
+    const target = sales?.targetValue ?? 0;
+    const achievement = sales?.achievementPct;
 
     return [
-      { label: 'Units Sold', value: (sales?.currentQty ?? 0).toLocaleString(), tone: 'neutral' },
-      { label: 'Bricks with Sales', value: String(brickCount), tone: 'neutral' },
+      // The month's whole target — nothing to compare it against, so no pill.
+      {
+        label: 'Monthly Target',
+        value: target > 0 ? formatAmount(target) : '—',
+        tone: 'neutral',
+      },
+      {
+        label: 'Achievement %',
+        value: achievement == null ? '—' : `${achievement}%`,
+        // No pill: the sales figure it came from is already the headline of the
+        // Total Sales card above, so repeating it here only added noise.
+        // Ahead of the month's pace reads as good; behind it does not. Compared
+        // against elapsed days, not 100%, so day 12 of 31 isn't called a miss.
+        tone:
+          achievement == null
+            ? 'neutral'
+            : achievement >= (daysCovered / monthLength) * 100
+              ? 'positive'
+              : 'negative',
+      },
       {
         label: 'Expected Sales for the Month',
         value: formatAmount(projected),
-        change: `${daysCovered} of ${monthLength} days`,
-        tone: 'neutral',
+        // Where the projection lands against the target. With no target loaded
+        // for the month there is nothing to be a percentage OF, so it falls back
+        // to how far through the month the run rate is measured over.
+        change:
+          target > 0
+            ? `${Math.round((projected / target) * 100)}% of target`
+            : `${Math.round((daysCovered / monthLength) * 100)}% of month`,
+        tone: target > 0 && projected >= target ? 'positive' : 'neutral',
       },
     ];
   }, [sales, period]);
@@ -491,7 +527,7 @@ export default function AnalyticsScreen() {
               previous period sold nothing — there is no growth from zero. */}
           {isSales ? (
             <View style={styles.rfiStatBox}>
-              <Text style={styles.rfiStatLabel}>Growth</Text>
+              <Text style={styles.rfiStatLabel}>Growth over last month</Text>
               {isSalesLoading ? (
                 <AppSkeleton width={72} height={26} />
               ) : (
@@ -575,27 +611,76 @@ export default function AnalyticsScreen() {
         {isSales ? (
           // Sales breaks down three ways; calls break down two. Rendering them
           // as separate sets beats forcing one set of cards to be both.
-          salesBreakdowns.map((breakdown) => (
+          <>
+            {salesBreakdowns.map((breakdown) => (
+              <AppChartCard
+                key={breakdown.title}
+                title={breakdown.title}
+                icon={
+                  <Ionicons name={breakdown.icon} size={20} color={Colors.primary} />
+                }
+                chartWrapperStyle={styles.barChartWrapper}
+                style={styles.chartCard}
+              >
+                {isSalesLoading ? (
+                  <AppSkeletonChart bars={5} height={210} />
+                ) : breakdown.data.length > 0 ? (
+                  <AppColumnChart data={breakdown.data} height={210} />
+                ) : (
+                  <Text style={styles.chartEmpty}>
+                    No sales recorded in this period.
+                  </Text>
+                )}
+              </AppChartCard>
+            ))}
+
+            {/* A ranked list rather than a chart: a rep's customer count runs to
+                four figures, so bars would be meaningless — the useful question
+                is who the biggest few are, by name. */}
             <AppChartCard
-              key={breakdown.title}
-              title={breakdown.title}
+              title="Top 10 Customers"
               icon={
-                <Ionicons name={breakdown.icon} size={20} color={Colors.primary} />
+                <Ionicons name="storefront-outline" size={20} color={Colors.primary} />
               }
-              chartWrapperStyle={styles.barChartWrapper}
               style={styles.chartCard}
             >
               {isSalesLoading ? (
-                <AppSkeletonChart bars={5} height={210} />
-              ) : breakdown.data.length > 0 ? (
-                <AppColumnChart data={breakdown.data} height={210} />
+                <View style={styles.customerList}>
+                  {[0, 1, 2, 3, 4].map((index) => (
+                    <View key={index} style={styles.customerRow}>
+                      <AppSkeleton width={24} height={24} radius={12} />
+                      <View style={styles.customerNameCell}>
+                        <AppSkeleton height={13} />
+                      </View>
+                      <AppSkeleton width={62} height={13} />
+                    </View>
+                  ))}
+                </View>
+              ) : topCustomers.length > 0 ? (
+                <View style={styles.customerList}>
+                  {topCustomers.map((customer, index) => (
+                    <View key={customer.customerId} style={styles.customerRow}>
+                      <View style={styles.customerRank}>
+                        <Text style={styles.customerRankText}>{index + 1}</Text>
+                      </View>
+                      <View style={styles.customerNameCell}>
+                        <Text style={styles.customerName} numberOfLines={1}>
+                          {customer.name}
+                        </Text>
+                      </View>
+                      <Text style={styles.customerAmount}>
+                        {formatAmount(customer.amount)}
+                      </Text>
+                    </View>
+                  ))}
+                </View>
               ) : (
                 <Text style={styles.chartEmpty}>
-                  No sales recorded in this period.
+                  No customers sold to in this period.
                 </Text>
               )}
             </AppChartCard>
-          ))
+          </>
         ) : (
           <>
             <AppChartCard
@@ -879,6 +964,47 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     fontSize: 13,
     fontWeight: '600',
+  },
+  customerList: {
+    gap: 8,
+  },
+  customerRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingVertical: 10,
+    paddingHorizontal: 12,
+    borderRadius: 12,
+    backgroundColor: '#F8FAFC',
+  },
+  customerRank: {
+    width: 24,
+    height: 24,
+    borderRadius: 12,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  customerRankText: {
+    color: '#FFFFFF',
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  // Takes the slack so a long shop name truncates instead of shoving the
+  // amount off the row.
+  customerNameCell: {
+    flex: 1,
+    minWidth: 0,
+  },
+  customerName: {
+    color: Colors.text,
+    fontSize: 13,
+    fontWeight: '700',
+  },
+  customerAmount: {
+    color: Colors.primary,
+    fontSize: 13,
+    fontWeight: '800',
   },
   // Mirrors SummaryMetricsGrid's layout so the skeletons occupy the same space
   // the real metric cards will, and nothing shifts when they resolve.

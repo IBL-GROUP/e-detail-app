@@ -1,3 +1,4 @@
+import { Ionicons } from '@expo/vector-icons';
 import { useMemo } from 'react';
 import {
   ActivityIndicator,
@@ -7,7 +8,6 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import { Ionicons } from '@expo/vector-icons';
 
 import { useTeamBrands, type TeamBrand } from '@/api/content';
 import { ScreenLayout } from '@/components/ui/ScreenLayout';
@@ -44,7 +44,7 @@ export default function ContentLibrary() {
   }, [brands, columns]);
 
   return (
-    <ScreenLayout title="View Content" subtitle={user?.team} scrollable={false} showBack>
+    <ScreenLayout title="Content" subtitle={user?.team} scrollable={false} showBack>
       <FlatList
         // Changing numColumns needs a fresh list instance.
         key={`columns-${columns}`}

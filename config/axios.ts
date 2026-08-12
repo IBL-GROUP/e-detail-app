@@ -60,16 +60,33 @@ axios.interceptors.response.use(
     const message = error.response?.data?.message || error.message;
 
     if (status === 401) {
-      // The token is gone, invalid, or a day old. Ending the session sends the
-      // rep to the login screen; the call outbox is untouched, so anything
-      // queued still uploads once they sign back in.
+      // NOT every 401 means the session is bad, and treating them alike logged
+      // the rep straight back out after a successful login: the two bootstrap
+      // endpoints (/auth/offline-users, /doctor/planned-all) are gated by the
+      // shared OFFLINE_SYNC_KEY, and they answer 401 when that key is missing or
+      // mismatched — which says nothing about the user's token.
       //
-      // Login itself is excluded: a wrong password is also a 401, and it must
-      // surface as "invalid credentials" on the login screen rather than
-      // recursively tearing down a session that was never established.
+      // Only the auth middleware's own codes end a session. Those three are the
+      // only 401s that actually mean "your token will not work".
+      const code = error.response?.data?.code;
+      const isSessionFailure =
+        code === 'TOKEN_EXPIRED' || code === 'TOKEN_INVALID' || code === 'TOKEN_MISSING';
+      // Login itself is excluded too: a wrong password is also a 401, and it
+      // must surface as "invalid credentials" on the login screen rather than
+      // tearing down a session that was never established.
       const isLoginRequest = String(error.config?.url ?? '').includes('/auth/login');
-      console.warn(`[API] 401 on ${error.config?.url} — session ended`);
-      if (!isLoginRequest) onUnauthorized?.(error.response?.data?.code);
+
+      if (isSessionFailure && !isLoginRequest) {
+        console.warn(`[API] 401 ${code} on ${error.config?.url} — session ended`);
+        onUnauthorized?.(code);
+      } else {
+        // e.g. a bad app key on a bootstrap call. Worth knowing about — offline
+        // login and the pre-cached planned list will be unavailable — but the
+        // rep stays signed in and everything else keeps working.
+        console.warn(
+          `[API] 401 on ${error.config?.url} (${message}) — session kept, this is not a token failure`,
+        );
+      }
     } else if (status) {
       // A real HTTP error from the server.
       console.error(`[API Error] ${status}:`, error.response?.data || message);

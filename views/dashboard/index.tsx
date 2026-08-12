@@ -31,8 +31,11 @@ const NAV_CARDS: {
     href: '/my-brands',
   },
   {
-    label: 'View Content',
-    description: 'Brands and SKUs you detail',
+    // The slide decks themselves — read-only previews of the visuals a rep
+    // presents during a call. Named for the visuals, not the brands, so it
+    // doesn't read as a repeat of the Brands & SKUs card above.
+    label: 'Content',
+    description: 'Detailing slides you show in calls',
     iconName: 'albums-outline',
     href: '/content-library',
   },

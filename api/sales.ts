@@ -47,6 +47,16 @@ export interface MieSalesSummary {
   growthPct: number | null;
   /** Units sold in the selected period. */
   currentQty: number;
+  /**
+   * The rep's standing MONTHLY target, summed over their assigned products.
+   * `mie_product_target` has no period column, so this is the same figure
+   * whatever span is selected — a part-month is measured against the full
+   * month's number, which is what an achievement percentage means.
+   */
+  targetValue: number;
+  targetUnit: number;
+  /** Sales as a percentage of target; null when the rep carries no target. */
+  achievementPct: number | null;
   byBrick: SalesBrickSlice[];
   bySku: SalesSkuSlice[];
   byCustomer: SalesCustomerSlice[];
@@ -82,6 +92,9 @@ export const getMieSales = async (
     previousAmount: res.previousAmount ?? 0,
     growthPct: res.growthPct ?? null,
     currentQty: res.currentQty ?? 0,
+    targetValue: res.targetValue ?? 0,
+    targetUnit: res.targetUnit ?? 0,
+    achievementPct: res.achievementPct ?? null,
     byBrick: res.byBrick ?? [],
     bySku: res.bySku ?? [],
     byCustomer: res.byCustomer ?? [],
@@ -94,18 +107,24 @@ export const getMieSales = async (
 /**
  * The rep's sales for a period.
  *
- * Held for longer than the call figures: this reads a foreign table on the data
- * warehouse, which is billed daily at best and costs seconds per query, so
- * refetching it as often as call data would be waste for numbers that cannot
- * have changed. Persisted with the rest of the query cache, so the last figures
- * are still readable offline.
+ * Deliberately NOT held stale on the client. It used to sit on a 30-minute
+ * staleTime, which — combined with the cache being persisted to disk — meant a
+ * reload restored the old response and never asked the server again. Corrected
+ * figures could not be seen at all except in a fresh (incognito) profile.
+ *
+ * The server keeps its own short cache, so asking on every mount is cheap: a
+ * repeat request comes back in milliseconds rather than re-running the ~100s
+ * warehouse query. The last response is still persisted, so the figures remain
+ * readable offline — they are just never treated as fresh enough to skip a
+ * refetch when the screen is opened.
  */
 export const useMieSales = (mieId?: string, period?: CallPeriod) =>
   useQuery({
     queryKey: mieSalesKey(mieId, period),
     queryFn: () => getMieSales(mieId as string, period as CallPeriod),
     enabled: Boolean(mieId && period),
-    staleTime: 30 * 60 * 1000,
+    staleTime: 0,
+    refetchOnMount: 'always',
   });
 
 /**

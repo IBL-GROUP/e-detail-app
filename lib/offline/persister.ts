@@ -13,7 +13,11 @@ const WRITE_THROTTLE_MS = 1500;
 // Shared by the React provider and the headless background sync.
 // v2: doctor rows gained pmdc / class / last-visit (and dropped the GPS
 // "location" field), so any v1 cache must be discarded on upgrade.
-export const CACHE_BUSTER = 'v2';
+// v3: the sales summary gained byBrand, byCustomer and the monthly target. A v2
+// cache holds responses from before those existed, and because sales is held for
+// 30 minutes those stale rows kept rendering an empty Sales by Brand chart long
+// after the backend started returning brands.
+export const CACHE_BUSTER = 'v3';
 
 export function createFilePersister(): Persister {
   let pending: PersistedClient | null = null;
