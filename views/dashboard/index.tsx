@@ -51,6 +51,13 @@ const NAV_CARDS: {
     iconName: 'bar-chart-outline',
     href: '/analytics',
   },
+  {
+    // The rep's own patient log (patient_log) — recorded by them, listed here.
+    label: 'Patients',
+    description: 'Patients you have recorded',
+    iconName: 'person-add-outline',
+    href: '/patients',
+  },
 ];
 
 /**

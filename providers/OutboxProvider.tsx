@@ -17,16 +17,27 @@ import {
   subscribeOutbox,
   subscribeOutboxSynced,
 } from '@/lib/offline/outbox';
+import {
+  flushPatientOutbox,
+  getPendingPatientCount,
+  initPatientOutbox,
+  subscribePatientOutbox,
+} from '@/lib/offline/patientOutbox';
+/** Prefix of every patient-list query key (one per rep). */
+const PATIENTS_QUERY_KEY = ['patients'] as const;
 
 interface OutboxContextValue {
   /** Number of call activities still waiting to sync. */
   pendingCount: number;
-  /** Manually trigger a flush (e.g. a "Sync now" button). */
+  /** Number of recorded patients still waiting to sync. */
+  pendingPatientCount: number;
+  /** Manually trigger a flush of both queues (e.g. a "Sync now" button). */
   flushNow: () => Promise<void>;
 }
 
 const OutboxContext = createContext<OutboxContextValue>({
   pendingCount: 0,
+  pendingPatientCount: 0,
   flushNow: async () => {},
 });
 
@@ -51,6 +62,7 @@ const CALL_DERIVED_QUERY_KEYS = [
 
 export function OutboxProvider({ children }: { children: ReactNode }) {
   const [pendingCount, setPendingCount] = useState(0);
+  const [pendingPatientCount, setPendingPatientCount] = useState(0);
   const queryClient = useQueryClient();
 
   const refreshCount = useCallback(async () => {
@@ -59,25 +71,52 @@ export function OutboxProvider({ children }: { children: ReactNode }) {
     } catch {
       // ignore
     }
+    try {
+      setPendingPatientCount(await getPendingPatientCount());
+    } catch {
+      // ignore
+    }
   }, []);
 
-  // Initialize the DB, do a first flush, and keep the pending count live.
+  /**
+   * Flush the patient queue and, if anything landed, drop the cached list so it
+   * refetches — the server's copy carries the real s_no and created_at, and
+   * until it arrives the list is still rendering this device's placeholder row.
+   */
+  const flushPatients = useCallback(async () => {
+    const synced = await flushPatientOutbox();
+    if (synced > 0) {
+      // The whole family, not one rep's key: this runs outside any screen, so
+      // the mieId the list is keyed by isn't in hand here.
+      void queryClient.invalidateQueries({ queryKey: PATIENTS_QUERY_KEY });
+    }
+    return synced;
+  }, [queryClient]);
+
+  // Initialize the DBs, do a first flush of both queues, and keep the pending
+  // counts live.
   useEffect(() => {
     let mounted = true;
     (async () => {
       await initOutbox();
+      await initPatientOutbox();
       if (!mounted) return;
       await refreshCount();
       void flushOutbox().then(refreshCount);
+      void flushPatients().then(refreshCount);
     })();
     const unsubscribe = subscribeOutbox(() => {
+      void refreshCount();
+    });
+    const unsubscribePatients = subscribePatientOutbox(() => {
       void refreshCount();
     });
     return () => {
       mounted = false;
       unsubscribe();
+      unsubscribePatients();
     };
-  }, [refreshCount]);
+  }, [refreshCount, flushPatients]);
 
   // A queued call reached the server — drop the caches built from it so the
   // screen the rep is looking at refetches instead of showing pre-call figures.
@@ -96,20 +135,22 @@ export function OutboxProvider({ children }: { children: ReactNode }) {
       const connected = Boolean(state.isConnected);
       if (!wasConnected && connected) {
         void flushOutbox().then(refreshCount);
+        void flushPatients().then(refreshCount);
       }
       wasConnected = connected;
     });
     return unsubscribe;
-  }, [refreshCount]);
+  }, [refreshCount, flushPatients]);
 
   const flushNow = useCallback(async () => {
     await flushOutbox();
+    await flushPatients();
     await refreshCount();
-  }, [refreshCount]);
+  }, [refreshCount, flushPatients]);
 
   const value = useMemo<OutboxContextValue>(
-    () => ({ pendingCount, flushNow }),
-    [pendingCount, flushNow],
+    () => ({ pendingCount, pendingPatientCount, flushNow }),
+    [pendingCount, pendingPatientCount, flushNow],
   );
 
   return <OutboxContext.Provider value={value}>{children}</OutboxContext.Provider>;

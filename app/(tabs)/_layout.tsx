@@ -65,6 +65,10 @@ export default function TabLayout() {
         name="my-brands"
         options={{ href: null }}
       />
+      <Tabs.Screen
+        name="patients"
+        options={{ href: null }}
+      />
 
       {/* Doctor detail lives inside the tabs so the bottom nav stays visible. */}
       <Tabs.Screen
