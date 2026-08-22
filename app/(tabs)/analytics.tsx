@@ -320,10 +320,10 @@ export default function AnalyticsScreen() {
     monthlyCompleted?.previousTo,
   );
   const currentSpanLabel = currentSpan
-    ? `Current Month (${currentSpan})`
+    ? `Current Month`
     : 'Current Month';
   const previousSpanLabel = previousSpan
-    ? `Previous Month (${previousSpan})`
+    ? `Previous Month`
     : 'Previous Month';
   const specialtyColumns = toColumns(engagement?.bySpecialty ?? []);
   const brandColumns = toColumns(engagement?.byBrand ?? []);
@@ -488,9 +488,9 @@ export default function AnalyticsScreen() {
               {isSales ? 'Total Sales' : 'Calls Completed'}
             </Text>
             {/* Both views compare the same way, so they read the same way. */}
-            <Text style={styles.rfiSubtitle}>
+            {/* <Text style={styles.rfiSubtitle}>
               Selected month vs previous month
-            </Text>
+            </Text> */}
           </View>
         </View>
         <View style={styles.rfiStatsRow}>

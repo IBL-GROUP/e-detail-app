@@ -55,6 +55,13 @@
           "locationWhenInUsePermission": "Allow $(PRODUCT_NAME) to record your location when you mark yourself as arrived for a doctor call."
         }
       ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Allow $(PRODUCT_NAME) to access your photos so you can attach them to a patient record.",
+          "cameraPermission": "Allow $(PRODUCT_NAME) to use the camera so you can photograph a prescription for a patient record."
+        }
+      ],
       "expo-font"
     ],
     "experiments": {

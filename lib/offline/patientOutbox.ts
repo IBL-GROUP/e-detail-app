@@ -2,6 +2,12 @@ import * as Crypto from 'expo-crypto';
 import NetInfo from '@react-native-community/netinfo';
 
 import axios from '@/config/axios';
+import {
+  cleanUpLocalAttachments,
+  isLocalAttachment,
+  persistPickedImage,
+  uploadPendingAttachments,
+} from './patientAttachments';
 // Type-only: erased at compile time, so this file has no runtime dependency on
 // the api module — which imports THIS one. The call queue keeps the same
 // one-way shape (api/calls.ts never imports lib/offline/outbox.ts).
@@ -127,16 +133,49 @@ export interface LocalPatient {
 export async function enqueuePatient(
   payload: PatientLogInput,
 ): Promise<string> {
-  const clientPatientId = Crypto.randomUUID();
+  /**
+   * Identity decides insert vs update, and getting it wrong duplicates the
+   * patient:
+   *
+   * - Editing a row this app filed  -> reuse its client_patient_id, so the
+   *   server's upsert lands on the same row.
+   * - Editing a row with no client id (filed before that column existed) ->
+   *   send NO client id at all and let the server match on s_no. Minting one
+   *   here would make the upsert find nothing and insert a second copy.
+   * - A genuinely new patient -> a fresh id.
+   */
+  const clientPatientId =
+    payload.client_patient_id ??
+    (payload.s_no != null ? undefined : Crypto.randomUUID());
+
+  // The local queue still needs a unique key for a row that has no client id.
+  const queueKey = clientPatientId ?? `s_no:${payload.s_no}`;
+
+  // Picked images live in the OS cache directory, which can be cleared at any
+  // time. Copy them somewhere durable BEFORE the row is queued, so a photo can't
+  // evaporate between the clinic and the next flush.
+  const attachments: string[] = [];
+  for (const uri of payload.attachments ?? []) {
+    const value = String(uri ?? '').trim();
+    if (!value) continue;
+    attachments.push(isLocalAttachment(value) ? await persistPickedImage(value) : value);
+  }
+
   await patientWrite(
-    clientPatientId,
-    JSON.stringify({ ...payload, client_patient_id: clientPatientId }),
+    queueKey,
+    JSON.stringify({
+      ...payload,
+      attachments,
+      // Only ever set when there genuinely is one — an `undefined` here would
+      // serialize away, which is exactly what the s_no path needs.
+      client_patient_id: clientPatientId,
+    }),
     new Date().toISOString(),
   );
   notify();
   // Fire-and-forget; never block the caller on the network.
   void flushPatientOutbox();
-  return clientPatientId;
+  return queueKey;
 }
 
 function parseRow(payload: string): PatientLogInput | null {
@@ -209,6 +248,11 @@ export async function flushPatientOutbox(): Promise<number> {
     // empty object would just be rejected five times and then dropped anyway.
     // Discard it here so it can't hold up the rows behind it.
     const items: (PatientLogInput & { clientId: string })[] = [];
+    const uploadFailures: string[] = [];
+    // The on-device image files per row, kept so they can be deleted once the
+    // server has accepted the patient that referenced them.
+    const localFilesById = new Map<string, string[]>();
+
     for (const row of rows) {
       const patient = parseRow(row.payload);
       if (!patient) {
@@ -218,7 +262,38 @@ export async function flushPatientOutbox(): Promise<number> {
         await patientDelete(row.client_patient_id);
         continue;
       }
-      items.push({ ...patient, clientId: row.client_patient_id });
+
+      /**
+       * Images go up FIRST, and the patient carries the server paths they came
+       * back as. If any upload fails the whole row is held over rather than
+       * filed with a short list — a prescription photo that silently never
+       * arrived is worse than a patient that syncs an hour later.
+       */
+      let attachments: string[];
+      try {
+        attachments = await uploadPendingAttachments(patient.attachments);
+      } catch (error: any) {
+        uploadFailures.push(row.client_patient_id);
+        await patientMarkFailed(
+          row.client_patient_id,
+          row.attempts,
+          String(error?.message ?? 'attachment upload failed').slice(0, 500),
+        );
+        continue;
+      }
+
+      localFilesById.set(
+        row.client_patient_id,
+        (patient.attachments ?? []).filter(isLocalAttachment),
+      );
+      items.push({ ...patient, attachments, clientId: row.client_patient_id });
+    }
+
+    if (uploadFailures.length > 0) {
+      console.warn(
+        `[patients] holding ${uploadFailures.length} row(s) — attachments not uploaded yet`,
+      );
+      notify();
     }
 
     if (items.length === 0) {
@@ -257,6 +332,11 @@ export async function flushPatientOutbox(): Promise<number> {
       if (result.success) {
         syncedCount += 1;
         await patientMarkSynced(result.clientId, now);
+        // The server holds the images now, so the device's copies are dead
+        // weight. Best-effort: a leftover file costs space, never data.
+        void cleanUpLocalAttachments(localFilesById.get(result.clientId)).catch(
+          () => {},
+        );
         continue;
       }
 

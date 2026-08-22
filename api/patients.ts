@@ -24,6 +24,8 @@ export interface PatientLogRow {
   patient_name: string;
   contact_number?: string | null;
   city?: string | null;
+  /** Street address — free text, longer than the other fields (varchar 500). */
+  address?: string | null;
   /** How the product is given — 'Oral' or 'PFS'. */
   oral_pfs?: string | null;
   strength_month_1?: string | null;
@@ -35,13 +37,27 @@ export interface PatientLogRow {
   doctor?: string | null;
   speciality?: string | null;
   created_at?: string | null;
+  /**
+   * The uploaded images.
+   *
+   * On the wire this is a list: absolute URLs coming back from the server,
+   * and — while a patient is still queued on the device — local file URIs of
+   * photos that haven't been uploaded yet. The server stores the paths in
+   * `patient_log.attachment` as a JSON array.
+   */
+  attachments?: string[];
 }
 
-/** What the Add Patient form submits. Everything but the name is optional. */
+/**
+ * What the form submits. Everything but the name is optional.
+ *
+ * `s_no` rides along only when EDITING, to identify the row being changed —
+ * the server updates by it when there is no client_patient_id to upsert on.
+ */
 export type PatientLogInput = Omit<
   PatientLogRow,
   's_no' | 'created_at' | 'mie_id' | 'mie_name'
->;
+> & { s_no?: number };
 
 /**
  * A patient row as the list renders it: the stored columns plus whether this
@@ -140,19 +156,52 @@ export const usePatients = (mieId?: string) => {
       isPending: false,
     }));
 
-    const serverIds = new Set(
-      serverRows
-        .map((row) => String(row.client_patient_id ?? ''))
-        .filter(Boolean),
+    /**
+     * Unsynced local rows OVERRIDE the server's copy of the same patient.
+     *
+     * An edit made offline re-queues the row under its existing identity, so
+     * the server still holds the old version. Merely de-duplicating would show
+     * that stale copy and the rep's change would look like it never happened —
+     * so a local row that hasn't synced replaces the server row it matches,
+     * keeping the server's s_no and created_at so the card reads correctly.
+     */
+    const unsynced = local.filter((entry) => entry.syncedAt == null);
+    const byClientId = new Map(
+      unsynced
+        .filter((entry) => entry.patient.client_patient_id)
+        .map((entry) => [String(entry.patient.client_patient_id), entry]),
+    );
+    const bySNo = new Map(
+      unsynced
+        .filter((entry) => entry.patient.s_no != null)
+        .map((entry) => [Number(entry.patient.s_no), entry]),
     );
 
-    const pending = local
-      .filter((entry) => !serverIds.has(entry.clientPatientId))
+    const consumed = new Set<LocalPatient>();
+    const merged = serverRows.map((row) => {
+      const match =
+        (row.client_patient_id
+          ? byClientId.get(String(row.client_patient_id))
+          : undefined) ?? bySNo.get(Number(row.s_no));
+      if (!match) return row;
+
+      consumed.add(match);
+      return {
+        ...row,
+        ...match.patient,
+        s_no: row.s_no,
+        created_at: row.created_at,
+        isPending: true,
+      };
+    });
+
+    // Whatever didn't match an existing row is a brand-new patient.
+    const added = unsynced
+      .filter((entry) => !consumed.has(entry))
       .map(toListRow);
 
-    // Local rows first: they are the newest by definition, and a rep who has
-    // just recorded a patient expects to see them at the top.
-    return [...pending, ...serverRows];
+    // New ones first: a rep who has just recorded a patient expects them on top.
+    return [...added, ...merged];
   }, [query.data, local]);
 
   return { ...query, data };

@@ -7,11 +7,15 @@ import { AppSearchInput } from '@/components/ui/AppSearchInput';
 import { ScreenLayout } from '@/components/ui/ScreenLayout';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/providers/AuthProvider';
-import { useSync } from '@/providers/SyncProvider';
-import { useOutbox } from '@/providers/OutboxProvider';
 import { useInfinitePlannedDoctors } from '@/api/doctor';
-import { useSpecialties } from '@/api/content';
-import { usePatients, useCreatePatient, type PatientLogInput } from '@/api/patients';
+import { useSpecialties, useMieBrands } from '@/api/content';
+import { useTeamSkus } from '@/api/sku';
+import {
+  usePatients,
+  useCreatePatient,
+  type PatientLogInput,
+  type PatientListRow,
+} from '@/api/patients';
 import { AddPatientModal } from './AddPatientModal';
 import { PatientCard } from './PatientCard';
 
@@ -25,18 +29,19 @@ const LIST_PAGE = 30;
  * Fully offline-capable, like call reporting. The list reads from the persisted
  * React Query cache merged with this device's own queue, and a new patient is
  * written to that queue first — so recording one works with no signal and
- * uploads on the next flush. Rows still waiting are marked "Pending sync".
+ * uploads on the next flush — silently, with no sync chrome to distract from
+ * the work. Tap Edit on a card to change a patient that is already recorded.
  */
 export default function Patients() {
   const { user } = useAuth();
-  const { isOnline } = useSync();
-  const { pendingPatientCount } = useOutbox();
   const mieId = user?.mieId ? String(user.mieId) : undefined;
 
   const [searchQuery, setSearchQuery] = useState('');
   const deferredSearchQuery = useDeferredValue(searchQuery.trim());
   const [visibleCount, setVisibleCount] = useState(LIST_PAGE);
   const [isFormOpen, setIsFormOpen] = useState(false);
+  // The row being edited, or null when the form is adding a new patient.
+  const [editing, setEditing] = useState<PatientListRow | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const patientsQuery = usePatients(mieId);
@@ -79,6 +84,28 @@ export default function Patients() {
     ];
   }, [specialtiesQuery.data, doctors]);
 
+  /**
+   * The SKUs assigned to this rep — what the Dose dropdown offers.
+   *
+   * Their own product book (mie-brands) is the right list, flattened to names.
+   * It is React-Query cached, but unlike the team SKUs it is NOT seeded by the
+   * daily sync, so on a first-ever offline launch it can be empty — the team's
+   * SKUs, which the sync does seed, stand in for that case.
+   */
+  const mieBrandsQuery = useMieBrands(mieId);
+  const teamSkusQuery = useTeamSkus(user?.teamId);
+  const skus = useMemo(() => {
+    const fromBook = (mieBrandsQuery.data ?? [])
+      .flatMap((brand) => brand.skus ?? [])
+      .map((sku) => String(sku.skuName ?? '').trim())
+      .filter(Boolean);
+
+    const names = fromBook.length > 0 ? fromBook : (teamSkusQuery.data ?? []);
+    return [...new Set(names.map((name) => String(name).trim()).filter(Boolean))].sort(
+      (left, right) => left.localeCompare(right),
+    );
+  }, [mieBrandsQuery.data, teamSkusQuery.data]);
+
   // The `?? []` fallback lives inside the memo on purpose: as a bare const it
   // would be a fresh array every render, so the memo below would never hold.
   const patients = useMemo(() => {
@@ -110,7 +137,10 @@ export default function Patients() {
   const handleSubmit = (patient: PatientLogInput) => {
     setSubmitError(null);
     createPatient.mutate(patient, {
-      onSuccess: () => setIsFormOpen(false),
+      onSuccess: () => {
+        setIsFormOpen(false);
+        setEditing(null);
+      },
       // Saving writes to the on-device queue, so connectivity can't fail it —
       // only local storage can. That is worth surfacing rather than swallowing,
       // because it means the patient was NOT recorded anywhere.
@@ -133,12 +163,11 @@ export default function Patients() {
                 <Text style={styles.stickyCountText}>{patients.length}</Text>
               </View>
             </View>
+            {/* Sync state is deliberately NOT surfaced. Queued patients upload
+                on their own and the rep has nothing to do about it either way,
+                so announcing it only turned a solved problem into a worry. */}
             <Text style={styles.stickySubtitle} numberOfLines={1}>
-              {pendingPatientCount > 0
-                ? `${pendingPatientCount} waiting to sync`
-                : isOnline
-                  ? 'Patients you have recorded'
-                  : 'Offline — new patients sync when you reconnect'}
+              Patients you have recorded
             </Text>
           </View>
 
@@ -146,6 +175,7 @@ export default function Patients() {
             label="Add Patient"
             onPress={() => {
               setSubmitError(null);
+              setEditing(null);
               setIsFormOpen(true);
             }}
             icon={<Ionicons name="add" size={18} color={Colors.textOnDark} />}
@@ -162,7 +192,16 @@ export default function Patients() {
       <FlatList
         data={visiblePatients}
         keyExtractor={(patient) => String(patient.s_no)}
-        renderItem={({ item }) => <PatientCard patient={item} />}
+        renderItem={({ item }) => (
+          <PatientCard
+            patient={item}
+            onEdit={(row) => {
+              setSubmitError(null);
+              setEditing(row);
+              setIsFormOpen(true);
+            }}
+          />
+        )}
         contentContainerStyle={styles.content}
         showsVerticalScrollIndicator={false}
         onEndReached={handleLoadMore}
@@ -195,11 +234,14 @@ export default function Patients() {
         visible={isFormOpen}
         doctors={doctors}
         specialties={specialties}
+        skus={skus}
+        editing={editing}
         submitting={createPatient.isPending}
         errorMessage={submitError}
         onCancel={() => {
           setSubmitError(null);
           setIsFormOpen(false);
+          setEditing(null);
         }}
         onSubmit={handleSubmit}
       />
