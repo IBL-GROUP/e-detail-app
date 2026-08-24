@@ -8,7 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { CallType } from '../callTypes';
+import { CALL_KIND_LABELS, CallType, type CallKind } from '../callTypes';
 import { MonthlyCallSummary } from './MonthlyCallSummary';
 
 /**
@@ -26,7 +26,7 @@ interface CallAnalyticsProps {
   doctorId?: string;
   mieId?: string;
   mode?: AnalyticsMode;
-  /** Chamber / group / parking — for the single-call report. */
+  /** Chamber / group / walking — for the single-call report. */
   callKind?: string;
   callType?: CallType;
   durationSeconds: number;
@@ -187,6 +187,13 @@ export default function CallAnalytics({
   returnToNewDoctor = false,
 }: CallAnalyticsProps) {
   const isCombined = mode === 'combined';
+
+  // callKind arrives as a loose string off the route params, so it is mapped
+  // rather than indexed blind: 'parking' reads as Walking, and anything
+  // unrecognised is shown as it came.
+  const shownKind = callKind
+    ? (CALL_KIND_LABELS[callKind as CallKind] ?? callKind)
+    : undefined;
   // Same query key as the section below, so React Query serves one fetch.
   const summaryQuery = useDoctorCallSummary(
     mieId,
@@ -327,7 +334,7 @@ export default function CallAnalytics({
               {isCombined
                 ? // Names the scope so a group-only report never reads as if it
                   // covered every call the doctor had.
-                  `${summary?.totalCalls ?? 0} ${callKind ? `${callKind} ` : ''}Calls Finished`
+                  `${summary?.totalCalls ?? 0} ${shownKind ? `${shownKind} ` : ''}Calls Finished`
                 : 'Call Finished'}
             </Text>
           </View>
@@ -394,7 +401,7 @@ export default function CallAnalytics({
               <View style={styles.callDetailRow}>
                 <Text style={styles.callDetailLabel}>Call type</Text>
                 <View style={styles.callDetailValue}>
-                  <Tag label={callKind ?? callType} tone="neutral" />
+                  <Tag label={shownKind ?? callType} tone="neutral" />
                 </View>
               </View>
 

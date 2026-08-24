@@ -42,7 +42,10 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row',
     alignItems: 'center',
-    alignSelf: 'flex-start',
+    // Centre, not flex-start: alignSelf overrides the parent's alignItems, so
+    // flex-start pinned the control to the top of any row taller than its own
+    // 22px switch — the filter group beside it, or a two-line title block.
+    alignSelf: 'center',
     gap: 10,
   },
   pressed: {

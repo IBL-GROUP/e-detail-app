@@ -5,7 +5,7 @@ import type {
   DoctorCallSummaryResponse,
   EngagementBreakdown,
   EngagementSlice,
-  LastCallFeedback,
+  CallNote,
   MonthlyCallTotals,
 } from '@/api/calls';
 import type { DoctorDataRow } from '@/api/doctor';
@@ -319,36 +319,63 @@ export function mergeDoctorRows(
  * only wins if it is actually more recent, so a synced note is never replaced by
  * an older one still sitting in the ledger.
  */
-export function mergeLastCallFeedback(
-  server: LastCallFeedback | null,
+/**
+ * The note's content, used to recognise a call this device recorded in the
+ * server's copy of it. The ledger keeps a call after it uploads, so without
+ * this every synced note would be listed twice — once from each source.
+ *
+ * Two blank calls on the same day collide, so an unsynced one is dropped as a
+ * duplicate of a different blank call. That is the safe direction to be wrong
+ * in: the call is still counted everywhere else, and a phantom entry saying
+ * nothing is worse than a missing one.
+ */
+function noteSignature(note: {
+  date: string;
+  feedback?: string | null;
+  feedbackComment?: string | null;
+}): string {
+  return [
+    note.date,
+    (note.feedback ?? '').trim(),
+    (note.feedbackComment ?? '').trim(),
+  ].join('|');
+}
+
+export function mergeCallNotes(
+  server: CallNote[],
   local: LocalCall[],
   mieId: string | undefined,
   doctorId: string | undefined,
-): LastCallFeedback | null {
+): CallNote[] {
   if (!mieId || !doctorId) return server;
 
-  let best: LastCallFeedback | null = server;
+  const seen = new Set(server.map(noteSignature));
+  const merged = [...server];
 
   for (const { call } of local) {
     if (call.call_outcome !== 'completed') continue;
     if (String(call.tsoid) !== String(mieId)) continue;
     if (String(call.doctorid) !== String(doctorId)) continue;
 
+    // A call with nothing written is still a call made, and is listed as one.
     const comment = (call.feedback_comment ?? '').trim();
     const chips = (call.feedback ?? '').trim();
-    if (!comment && !chips) continue;
 
-    const date = isoDate(callDate(call));
-    if (best && date <= best.date) continue;
-
-    best = {
-      date,
+    const note: CallNote = {
+      id: `local-${call.client_call_id}`,
+      date: isoDate(callDate(call)),
       feedback: chips || null,
       feedbackComment: comment || null,
     };
+
+    const signature = noteSignature(note);
+    if (seen.has(signature)) continue;
+    seen.add(signature);
+    merged.push(note);
   }
 
-  return best;
+  // Newest first, the order the endpoint returns and the card renders.
+  return merged.sort((a, b) => b.date.localeCompare(a.date));
 }
 
 /** Doctors finished for the month, including calls only this device knows about. */

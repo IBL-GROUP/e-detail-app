@@ -1,5 +1,5 @@
-import { useState } from 'react';
 import { Ionicons } from '@expo/vector-icons';
+import { useState } from 'react';
 import {
   ActivityIndicator,
   StyleSheet,
@@ -8,22 +8,22 @@ import {
   useWindowDimensions,
 } from 'react-native';
 
+import { useDoctorCallSummary, type DoctorCallRecord } from '@/api/calls';
 import { Tag } from '@/components/tag';
 import { AppColumnChart } from '@/components/ui/AppColumnChart';
 import { Colors } from '@/constants/theme';
-import { useDoctorCallSummary, type DoctorCallRecord } from '@/api/calls';
 
 interface MonthlyCallSummaryProps {
   mieId?: string;
   doctorId?: string;
-  /** Narrows the report to one call kind (chamber / group / parking). */
+  /** Narrows the report to one call kind (chamber / group / walking). */
   kind?: string;
 }
 
 const KINDS = [
   { key: 'chamber', label: 'Chamber', icon: 'person-outline' },
   { key: 'group', label: 'Group', icon: 'people-outline' },
-  { key: 'parking', label: 'Parking', icon: 'car-outline' },
+  { key: 'parking', label: 'Walking', icon: 'walk-outline' },
 ] as const;
 
 function formatDuration(seconds: number) {

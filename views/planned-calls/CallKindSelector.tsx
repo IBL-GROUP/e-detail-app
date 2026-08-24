@@ -2,7 +2,7 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { Pressable, StyleSheet, Text, View, type ViewStyle } from 'react-native';
 
 import { Colors } from '@/constants/theme';
-import type { CallKind } from './callTypes';
+import { CALL_KIND_LABELS, type CallKind } from './callTypes';
 
 /**
  * Which family the glyph comes from.
@@ -20,13 +20,23 @@ const CALL_KINDS: {
   label: string;
   icon: KindIcon;
 }[] = [
-  { key: 'chamber', label: 'Chamber', icon: { family: 'ion', name: 'person-outline' } },
+  {
+    key: 'chamber',
+    label: CALL_KIND_LABELS.chamber,
+    icon: { family: 'ion', name: 'person-outline' },
+  },
   {
     key: 'group',
-    label: 'Group',
+    label: CALL_KIND_LABELS.group,
     icon: { family: 'mci', name: 'account-group-outline' },
   },
-  { key: 'parking', label: 'Parking', icon: { family: 'ion', name: 'car-outline' } },
+  {
+    key: 'parking',
+    label: CALL_KIND_LABELS.parking,
+    // A walking figure, not a car: the rep walks in on the doctor rather than
+    // parking outside.
+    icon: { family: 'ion', name: 'walk-outline' },
+  },
 ];
 
 interface CallKindSelectorProps {
@@ -36,7 +46,7 @@ interface CallKindSelectorProps {
 }
 
 /**
- * Chamber / Group / Parking. Shown for both territory and institution modes —
+ * Chamber / Group / Walking. Shown for both territory and institution modes —
  * a rep can make any of the three from either.
  */
 export function CallKindSelector({ value, onChange, style }: CallKindSelectorProps) {

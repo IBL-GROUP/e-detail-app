@@ -6,7 +6,7 @@ import {
   mergeCompletedDoctorIds,
   mergeDoctorSummary,
   mergeEngagement,
-  mergeLastCallFeedback,
+  mergeCallNotes,
   mergeMonthlyTotals,
 } from '@/lib/offline/localCallModels';
 
@@ -312,8 +312,13 @@ export interface DoctorCallSummary {
   lastVisit?: string | null;
 }
 
-/** What the rep wrote down on their last completed call with a doctor. */
-export interface LastCallFeedback {
+/** What the rep wrote down on one completed call with a doctor. */
+export interface CallNote {
+  /**
+   * call_id for a note the server has; the client_call_id for one still
+   * sitting in this device's ledger. Only ever used as a list key.
+   */
+  id: string;
   /** YYYY-MM-DD */
   date: string;
   /** The quick-feedback chips, comma separated. */
@@ -325,33 +330,42 @@ export interface LastCallFeedback {
 export const lastCallFeedbackKey = (mieId?: string, doctorId?: string) =>
   ['last-call-feedback', mieId ?? 'no-mie', doctorId ?? 'no-doctor'] as const;
 
-export const getLastCallFeedback = async (
+export const getCallNotes = async (
   mieId: string,
   doctorId: string,
-): Promise<LastCallFeedback | null> => {
+): Promise<CallNote[]> => {
   const res = (await axios.get('/calls/last-feedback', {
     params: { mieId, doctorId },
-  })) as unknown as { success: boolean; feedback: LastCallFeedback | null };
-  return res.feedback ?? null;
+  })) as unknown as {
+    success: boolean;
+    notes?: CallNote[] | null;
+    feedback?: CallNote | null;
+  };
+  // `notes` is the list; `feedback` is the single newest note the endpoint
+  // returned before it kept history, and is read as a fallback so an app
+  // pointed at an older backend still shows the last call.
+  if (Array.isArray(res.notes)) return res.notes;
+  return res.feedback ? [res.feedback] : [];
 };
 
 /**
- * The previous call's notes for this doctor, or null when there are none.
+ * Every note this rep has written about this doctor, newest first, or an
+ * empty list when there are none.
  *
- * Calls this device recorded are checked too, so a note written on the last
+ * Calls this device recorded are folded in too, so a note written on the last
  * visit is readable on the next one whether or not it has uploaded yet.
  */
-export const useLastCallFeedback = (mieId?: string, doctorId?: string) => {
+export const useCallNotes = (mieId?: string, doctorId?: string) => {
   const query = useQuery({
     queryKey: lastCallFeedbackKey(mieId, doctorId),
-    queryFn: () => getLastCallFeedback(mieId as string, doctorId as string),
+    queryFn: () => getCallNotes(mieId as string, doctorId as string),
     enabled: Boolean(mieId && doctorId),
     staleTime: 60 * 1000,
   });
   const local = useLocalCalls();
 
   const data = useMemo(
-    () => mergeLastCallFeedback(query.data ?? null, local, mieId, doctorId),
+    () => mergeCallNotes(query.data ?? [], local, mieId, doctorId),
     [query.data, local, mieId, doctorId],
   );
 

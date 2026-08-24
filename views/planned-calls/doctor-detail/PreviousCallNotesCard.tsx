@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { StyleSheet, Text, View } from 'react-native';
 
-import { useLastCallFeedback } from '@/api/calls';
+import { useCallNotes, type CallNote } from '@/api/calls';
 import { Tag } from '@/components/tag';
 import { Colors } from '@/constants/theme';
 
@@ -20,28 +20,89 @@ function formatDate(value: string) {
   });
 }
 
+/** The quick-feedback chips are stored comma separated. */
+function chipsOf(note: CallNote): string[] {
+  return (note.feedback ?? '')
+    .split(',')
+    .map((chip) => chip.trim())
+    .filter(Boolean);
+}
+
 /**
- * What the rep wrote on their last call with this doctor, read before walking
- * into the next one.
+ * One call's notes: the date it was made, the chips picked and anything typed.
  *
- * Renders NOTHING when there are no notes — a doctor never called on, or one
- * whose calls were submitted without feedback, shows no empty card and no
- * placeholder. Nothing is worse than a box that says "no comments".
+ * A call submitted with neither says so. It is still listed — the rep was
+ * there, and a silent gap in the history would read as a call never made.
+ */
+function NoteEntry({ note, index }: { note: CallNote; index: number }) {
+  const comment = note.feedbackComment?.trim();
+  const chips = chipsOf(note);
+  const blank = !comment && chips.length === 0;
+
+  return (
+    <View style={styles.note}>
+      <View style={styles.noteHeader}>
+        {/* Counted back from the most recent, so the rep can see at a glance
+            how far back a note goes without reading every date. */}
+        <View style={styles.noteBadge}>
+          <Text style={styles.noteBadgeText}>{index + 1}</Text>
+        </View>
+        <Text style={styles.date}>{formatDate(note.date)}</Text>
+      </View>
+
+      {chips.length > 0 ? (
+        <View style={styles.chipRow}>
+          {chips.map((chip) => (
+            <Tag key={chip} label={chip} tone="neutral" style={styles.chip} />
+          ))}
+        </View>
+      ) : null}
+
+      {comment ? (
+        // Set as a quote block — the rep's own words, not app copy.
+        <View style={styles.quote}>
+          <Ionicons
+            name="chatbox-ellipses"
+            size={14}
+            color={Colors.primary}
+            style={styles.quoteIcon}
+          />
+          <Text style={styles.comment}>{comment}</Text>
+        </View>
+      ) : null}
+
+      {blank ? (
+        <View style={styles.blank}>
+          <Ionicons
+            name="remove-circle-outline"
+            size={14}
+            color={Colors.textMuted}
+          />
+          <Text style={styles.blankText}>
+            Call made — no feedback or comment was entered.
+          </Text>
+        </View>
+      ) : null}
+    </View>
+  );
+}
+
+/**
+ * Every completed call this rep has made on this doctor, newest first, read
+ * before walking into the next one. A doctor called on three times shows all
+ * three — the history is the point, not just the last visit — and the calls
+ * that carried no feedback are listed too, labelled as such.
+ *
+ * Renders NOTHING for a doctor never called on: no empty card, no placeholder.
  */
 export function PreviousCallNotesCard({
   mieId,
   doctorId,
 }: PreviousCallNotesCardProps) {
-  const { data } = useLastCallFeedback(mieId, doctorId);
+  const { data } = useCallNotes(mieId, doctorId);
+  const notes = data ?? [];
 
-  const comment = data?.feedbackComment?.trim();
-  // The quick-feedback chips are stored comma separated.
-  const chips = (data?.feedback ?? '')
-    .split(',')
-    .map((chip) => chip.trim())
-    .filter(Boolean);
-
-  if (!data || (!comment && chips.length === 0)) return null;
+  if (notes.length === 0) return null;
 
   return (
     <View style={styles.card}>
@@ -49,39 +110,19 @@ export function PreviousCallNotesCard({
         <Ionicons name="chatbubble-ellipses-outline" size={16} color={Colors.primary} />
         <Text style={styles.title}>Previous Call Notes</Text>
         <View style={styles.spacer} />
-        <Text style={styles.date}>{formatDate(data.date)}</Text>
+        <Text style={styles.count}>
+          {notes.length} {notes.length === 1 ? 'call' : 'calls'}
+        </Text>
       </View>
 
-      {chips.length > 0 ? (
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Last Feedback</Text>
-          <View style={styles.chipRow}>
-            {chips.map((chip) => (
-              <Tag key={chip} label={chip} tone="neutral" style={styles.chip} />
-            ))}
-          </View>
+      {notes.map((note, index) => (
+        <View key={note.id}>
+          {/* Between entries only — a rule above the first would just repeat
+              the card's own edge. */}
+          {index > 0 ? <View style={styles.divider} /> : null}
+          <NoteEntry note={note} index={index} />
         </View>
-      ) : null}
-
-      {/* Only when both halves are present — a card showing one of them has
-          nothing to divide. */}
-      {chips.length > 0 && comment ? <View style={styles.divider} /> : null}
-
-      {comment ? (
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Comment</Text>
-          {/* Set as a quote block — the rep's own words, not app copy. */}
-          <View style={styles.quote}>
-            <Ionicons
-              name="chatbox-ellipses"
-              size={14}
-              color={Colors.primary}
-              style={styles.quoteIcon}
-            />
-            <Text style={styles.comment}>{comment}</Text>
-          </View>
-        </View>
-      ) : null}
+      ))}
     </View>
   );
 }
@@ -110,26 +151,56 @@ const styles = StyleSheet.create({
   spacer: {
     flex: 1,
   },
+  count: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.textMuted,
+  },
+  note: {
+    gap: 8,
+  },
+  noteHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  noteBadge: {
+    minWidth: 20,
+    height: 20,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 6,
+    backgroundColor: Colors.primaryLight,
+  },
+  noteBadgeText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: Colors.secondary,
+  },
   date: {
     fontSize: 12,
-    fontWeight: '600',
+    fontWeight: '700',
     color: Colors.textMuted,
-  },
-  section: {
-    gap: 6,
-  },
-  sectionLabel: {
-    fontSize: 12,
-    fontWeight: '800',
-    letterSpacing: 0.6,
-    textTransform: 'uppercase',
-    color: Colors.textMuted,
-    marginBottom: 2,
   },
   chipRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
     gap: 6,
+  },
+  // Deliberately plainer than the quote block: this is the app saying nothing
+  // was written, not the rep's own words.
+  blank: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  blankText: {
+    flex: 1,
+    minWidth: 0,
+    fontSize: 13,
+    fontStyle: 'italic',
+    color: Colors.textMuted,
   },
   // Runs the full width of the card — the 16px padding is cancelled so the rule
   // splits the card rather than floating inside it.
@@ -137,7 +208,7 @@ const styles = StyleSheet.create({
     height: StyleSheet.hairlineWidth,
     backgroundColor: Colors.border,
     marginHorizontal: -16,
-    marginVertical: 2,
+    marginBottom: 12,
   },
   chip: {
     borderRadius: 999,
