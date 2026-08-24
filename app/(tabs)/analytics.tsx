@@ -62,14 +62,6 @@ function toRows(points: ColumnChartPoint[]): BreakdownRow[] {
   }));
 }
 
-const rfiData = {
-  planned: 320,
-  completed: 284,
-};
-
-// RFI (Plan / Completed) card is hidden for now — flip to true to bring it back.
-const SHOW_RFI = false;
-
 // Call Volume vs Goal is hidden for now — it still plots the placeholder series
 // above, not real calls. Flip to true to bring it back.
 const SHOW_CALL_VOLUME = false;
@@ -327,10 +319,40 @@ export default function AnalyticsScreen() {
     : 'Previous Month';
   const specialtyColumns = toColumns(engagement?.bySpecialty ?? []);
   const brandColumns = toColumns(engagement?.byBrand ?? []);
-  const outstandingCalls = Math.max(0, rfiData.planned - rfiData.completed);
-  const rfiCompletion = rfiData.planned > 0
-    ? Math.round((rfiData.completed / rfiData.planned) * 100)
-    : 0;
+
+  /**
+   * RFI as one more headline card, reading the SAME hooks the other cards do so
+   * it can never disagree with them: for calls it's completed ÷ planned calls,
+   * for sales the achievement percentage (falling back to sold ÷ target). A dash
+   * when there's no plan/target to be a percentage of.
+   */
+  const callMetrics = useMemo<SummaryMetric[]>(() => {
+    const planned = monthlyCompleted?.plannedCalls ?? 0;
+    const completed = monthlyCompleted?.thisMonth ?? 0;
+    const percent = planned > 0 ? Math.round((completed / planned) * 100) : null;
+    const rfi: SummaryMetric = {
+      label: 'RFI (Plan / Completed)',
+      value: percent == null ? '—' : `${percent}%`,
+      tone: 'neutral',
+    };
+    // RFI sits in the 3rd slot, so the two rate cards (RFI, Avg Engagement) line
+    // up after the two count cards (Call/Planned, Covered/Doctors).
+    return [...metrics.slice(0, 2), rfi, ...metrics.slice(2)];
+  }, [metrics, monthlyCompleted]);
+
+  const salesMetricsWithRfi = useMemo<SummaryMetric[]>(() => {
+    const target = sales?.targetValue ?? 0;
+    const achieved = sales?.currentAmount ?? 0;
+    const percent =
+      sales?.achievementPct ??
+      (target > 0 ? Math.round((achieved / target) * 100) : null);
+    const rfi: SummaryMetric = {
+      label: 'RFI (Target / Achieved)',
+      value: percent == null ? '—' : `${percent}%`,
+      tone: 'neutral',
+    };
+    return [...salesMetrics.slice(0, 2), rfi, ...salesMetrics.slice(2)];
+  }, [salesMetrics, sales]);
 
   const handleExportPdf = async () => {
     if (isExporting) return;
@@ -343,7 +365,7 @@ export default function AnalyticsScreen() {
           ? {
               dateLabel: formatRangeLabel(startDate, endDate),
               viewLabel: 'Sales Performance',
-              metrics: salesMetrics,
+              metrics: salesMetricsWithRfi,
               monthly: {
                 title: 'Total Sales',
                 thisMonth: formatAmount(sales?.currentAmount ?? 0),
@@ -358,7 +380,7 @@ export default function AnalyticsScreen() {
           : {
               dateLabel: formatRangeLabel(startDate, endDate),
               viewLabel: 'Call Performance',
-              metrics,
+              metrics: callMetrics,
               monthly: {
                 title: 'Calls Completed',
                 thisMonth: String(monthlyCompleted?.thisMonth ?? 0),
@@ -527,7 +549,7 @@ export default function AnalyticsScreen() {
               previous period sold nothing — there is no growth from zero. */}
           {isSales ? (
             <View style={styles.rfiStatBox}>
-              <Text style={styles.rfiStatLabel}>Growth over last month</Text>
+              <Text style={styles.rfiStatLabel}>GOLM</Text>
               {isSalesLoading ? (
                 <AppSkeleton width={72} height={26} />
               ) : (
@@ -545,55 +567,14 @@ export default function AnalyticsScreen() {
       {isSalesLoading ? (
         // Same 3-up shape the real cards take, so nothing jumps when they land.
         <View style={styles.metricSkeletonRow}>
-          {[0, 1, 2].map((index) => (
+          {[0, 1, 2, 3].map((index) => (
             <View key={index} style={styles.metricSkeletonCell}>
               <AppSkeletonStat labelWidth={index === 2 ? 110 : 70} />
             </View>
           ))}
         </View>
       ) : (
-        <SummaryMetricsGrid metrics={isSales ? salesMetrics : metrics} />
-      )}
-
-      {SHOW_RFI && (
-      <View style={styles.rfiCard}>
-        <View style={styles.rfiHeader}>
-          <View style={styles.rfiTitleRow}>
-            <Ionicons name="swap-horizontal-outline" size={20} color={Colors.primary} />
-            <Text style={styles.sectionTitle}>RFI</Text>
-            <Text style={styles.rfiSubtitle}>(Plan / Completed)</Text>
-          </View>
-        </View>
-        <View style={styles.rfiStatsRow}>
-          <View style={styles.rfiStatBox}>
-            <Text style={styles.rfiStatLabel}>Planned</Text>
-            <Text style={styles.rfiStatValue}>{rfiData.planned}</Text>
-          </View>
-          <View style={styles.rfiStatBox}>
-            <Text style={styles.rfiStatLabel}>Completed</Text>
-            <Text style={styles.rfiStatValue}>{rfiData.completed}</Text>
-          </View>
-        </View>
-
-        <View style={styles.rfiProgressBlock}>
-          <View style={styles.rfiProgressHeader}>
-            <Text style={styles.rfiProgressLabel}>Completion Progress</Text>
-            <Text style={styles.rfiProgressValue}>{rfiCompletion}%</Text>
-          </View>
-          <View style={styles.rfiTrack}>
-            <View style={[styles.rfiFill, { width: `${rfiCompletion}%` }]} />
-          </View>
-        </View>
-
-        <View style={styles.rfiFooterRow}>
-          <View style={styles.rfiFooterPill}>
-            <Text style={styles.rfiFooterPillText}>{outstandingCalls} Remaining</Text>
-          </View>
-          <Text style={styles.rfiFooterText}>
-            {rfiData.completed} of {rfiData.planned} planned calls completed
-          </Text>
-        </View>
-      </View>
+        <SummaryMetricsGrid metrics={isSales ? salesMetricsWithRfi : callMetrics} />
       )}
 
       <View style={styles.chartsGrid}>
@@ -868,11 +849,6 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '800',
   },
-  rfiSubtitle: {
-    color: Colors.textMuted,
-    fontSize: 14,
-    fontWeight: '600',
-  },
   rfiStatsRow: {
     flexDirection: 'row',
     flexWrap: 'wrap',
@@ -900,59 +876,6 @@ const styles = StyleSheet.create({
     color: Colors.text,
     fontSize: 28,
     fontWeight: '900',
-  },
-  rfiProgressBlock: {
-    gap: 8,
-  },
-  rfiProgressHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
-  rfiProgressLabel: {
-    color: Colors.text,
-    fontSize: 14,
-    fontWeight: '700',
-  },
-  rfiProgressValue: {
-    color: Colors.primary,
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  rfiTrack: {
-    height: 10,
-    borderRadius: 999,
-    backgroundColor: '#E2E8F0',
-    overflow: 'hidden',
-  },
-  rfiFill: {
-    height: '100%',
-    borderRadius: 999,
-    backgroundColor: Colors.primary,
-  },
-  rfiFooterRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    gap: 10,
-  },
-  rfiFooterPill: {
-    borderRadius: 999,
-    backgroundColor: '#DBEAFE',
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  rfiFooterPillText: {
-    color: Colors.primary,
-    fontSize: 14,
-    fontWeight: '800',
-  },
-  rfiFooterText: {
-    flex: 1,
-    textAlign: 'right',
-    color: Colors.textMuted,
-    fontSize: 14,
-    fontWeight: '600',
   },
   lineChartWrapper: {
     marginTop: 20,
