@@ -4,6 +4,7 @@ import {
   type CallPeriod,
   type EngagementSlice,
 } from '@/api/calls';
+import { useInfinitePlannedDoctors } from '@/api/doctor';
 import { formatAmount, useMieSales, type SalesSlice } from '@/api/sales';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppChartCard } from '@/components/ui/AppChartCard';
@@ -23,6 +24,7 @@ import { exportAnalyticsPdf, type BreakdownRow } from '@/lib/analytics/exportPdf
 import type { SummaryMetric } from '@/lib/analytics/summaryMetrics';
 import { useSummaryMetrics } from '@/lib/analytics/summaryMetrics';
 import { useAuth } from '@/providers/AuthProvider';
+import { mapDoctorRows } from '@/views/planned-calls/mapDoctor';
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
 import { Alert, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
@@ -194,14 +196,65 @@ export default function AnalyticsScreen() {
   const metrics = useSummaryMetrics(callPeriod);
   // Calls completed in the period, against the same length of time before it.
   const { data: monthlyCompleted } = useMonthlyCallTotals(user?.mieId, callPeriod);
+
+  /**
+   * RFI — the share of DOCTORS whose month is finished.
+   *
+   * Counted per doctor against their own class quota: an A4 counts once all
+   * four of their calls are made, an A2 once both are. Three of four is not
+   * RFI, and neither is one of two.
+   *
+   * It used to read completed ÷ planned CALLS, which is a different measure
+   * wearing the same name — and one that moves for any call at all, so eight
+   * calls on one doctor scored the same as finishing two doctors properly.
+   *
+   * Read from the cached doctor book rather than the totals endpoint: that is
+   * where the per-doctor quota lives, its visitCount already folds in calls
+   * still sitting in this device's outbox, and it works offline. It is also
+   * exactly what the Doctor List counts in its own subtitle, so the two agree.
+   */
+  const doctorsQuery = useInfinitePlannedDoctors({
+    mieId: user?.mieId,
+    teamId: user?.teamId,
+  });
+
+  const { rfiDone, rfiTotal, rfiPercent } = useMemo(() => {
+    const doctors = mapDoctorRows(
+      doctorsQuery.data?.pages.flatMap((page) => page.data) ?? [],
+    );
+    // A doctor with no class carries no quota, so there is nothing for them to
+    // complete — they are left out of both halves rather than counted as done.
+    const withQuota = doctors.filter((doctor) => (doctor.maxVisits ?? 0) > 0);
+    const done = withQuota.filter(
+      (doctor) => (doctor.visitCount ?? 0) >= (doctor.maxVisits ?? 0),
+    ).length;
+    return {
+      rfiDone: done,
+      rfiTotal: withQuota.length,
+      rfiPercent: withQuota.length
+        ? Math.round((done / withQuota.length) * 100)
+        : null,
+    };
+  }, [doctorsQuery.data]);
   // Average detailing time per call in the period, by specialty and by brand.
   const { data: engagement } = useEngagement(user?.mieId, callPeriod);
   /**
-   * Brick-wise sales for the same period. Only fetched for the Sales view — it
-   * queries the data warehouse and takes seconds, so a rep who never opens the
-   * tab never pays for it.
+   * Brick-wise sales for the same period, fetched as soon as the screen opens
+   * rather than when the Sales tab is first tapped.
+   *
+   * It queries the data warehouse and a cold request runs the better part of a
+   * minute. Held until the tab was opened, the rep paid that whole wait staring
+   * at skeletons; started now, it runs while they read their calls and is
+   * usually there before they switch.
+   *
+   * It also makes the PDF honest: the export carries both reports, and a rep
+   * who never opened the tab would otherwise have downloaded a Sales page of
+   * zeroes.
+   *
+   * The cost is that a rep who only ever looks at calls still triggers the
+   * query once per visit.
    */
-  const salesQuery = useMieSales(user?.mieId, isSales ? callPeriod : undefined);
+  const salesQuery = useMieSales(user?.mieId, callPeriod);
   const sales = salesQuery.data;
   /**
    * True while the period's sales are still being fetched and nothing is cached
@@ -327,18 +380,16 @@ export default function AnalyticsScreen() {
    * when there's no plan/target to be a percentage of.
    */
   const callMetrics = useMemo<SummaryMetric[]>(() => {
-    const planned = monthlyCompleted?.plannedCalls ?? 0;
-    const completed = monthlyCompleted?.thisMonth ?? 0;
-    const percent = planned > 0 ? Math.round((completed / planned) * 100) : null;
     const rfi: SummaryMetric = {
-      label: 'RFI (Plan / Completed)',
-      value: percent == null ? '—' : `${percent}%`,
+      label: 'RFI (Doctors Completed)',
+      value: rfiTotal === 0 ? '—' : `${rfiDone} / ${rfiTotal}`,
+      change: rfiPercent == null ? undefined : `${rfiPercent}%`,
       tone: 'neutral',
     };
     // RFI sits in the 3rd slot, so the two rate cards (RFI, Avg Engagement) line
     // up after the two count cards (Call/Planned, Covered/Doctors).
     return [...metrics.slice(0, 2), rfi, ...metrics.slice(2)];
-  }, [metrics, monthlyCompleted]);
+  }, [metrics, rfiDone, rfiTotal, rfiPercent]);
 
   const salesMetricsWithRfi = useMemo<SummaryMetric[]>(() => {
     const target = sales?.targetValue ?? 0;
@@ -358,46 +409,68 @@ export default function AnalyticsScreen() {
     if (isExporting) return;
     setIsExporting(true);
     try {
-      // Export whichever view is on screen, so the document matches what the
-      // rep was looking at when they tapped it.
-      await exportAnalyticsPdf(
-        isSales
-          ? {
-              dateLabel: formatRangeLabel(startDate, endDate),
-              viewLabel: 'Sales Performance',
-              metrics: salesMetricsWithRfi,
-              monthly: {
-                title: 'Total Sales',
-                thisMonth: formatAmount(sales?.currentAmount ?? 0),
-                previousMonth: formatAmount(sales?.previousAmount ?? 0),
+      /**
+       * BOTH reports, always — not whichever tab happens to be open.
+       *
+       * A rep sending their month in should send the whole of it, and a
+       * document titled "Analytics & Reports" that silently held only half
+       * depending on where they last tapped was a trap: nothing in the file
+       * said the other half was missing.
+       *
+       * Calls lead, matching the order of the toggle on screen.
+       */
+      await exportAnalyticsPdf({
+        dateLabel: formatRangeLabel(startDate, endDate),
+        sections: [
+          {
+            viewLabel: 'Call Performance',
+            metrics: callMetrics,
+            monthly: {
+              title: 'Calls Completed',
+              thisMonth: String(monthlyCompleted?.thisMonth ?? 0),
+              previousMonth: String(monthlyCompleted?.previousMonth ?? 0),
+            },
+            breakdowns: [
+              {
+                title: 'Avg Engagement Time by Specialty',
+                rows: toRows(specialtyColumns),
               },
-              // The same three cards the Sales view shows, in the same order.
-              breakdowns: salesBreakdowns.map((breakdown) => ({
+              {
+                title: 'Avg Engagement Time by Brand',
+                rows: toRows(brandColumns),
+              },
+            ],
+            emptyText: 'No calls recorded this month.',
+          },
+          {
+            viewLabel: 'Sales Performance',
+            metrics: salesMetricsWithRfi,
+            monthly: {
+              title: 'Total Sales',
+              thisMonth: formatAmount(sales?.currentAmount ?? 0),
+              previousMonth: formatAmount(sales?.previousAmount ?? 0),
+            },
+            // Every card the Sales view shows, in the same order — the three
+            // breakdowns and then Top 10 Customers, which is a chart on screen
+            // but was left out of the export entirely.
+            breakdowns: [
+              ...salesBreakdowns.map((breakdown) => ({
                 title: breakdown.title,
                 rows: toRows(breakdown.data),
               })),
-            }
-          : {
-              dateLabel: formatRangeLabel(startDate, endDate),
-              viewLabel: 'Call Performance',
-              metrics: callMetrics,
-              monthly: {
-                title: 'Calls Completed',
-                thisMonth: String(monthlyCompleted?.thisMonth ?? 0),
-                previousMonth: String(monthlyCompleted?.previousMonth ?? 0),
+              {
+                title: 'Top 10 Customers',
+                rows: topCustomers.map((customer) => ({
+                  name: customer.name,
+                  value: customer.amount,
+                  display: formatAmount(customer.amount),
+                })),
               },
-              breakdowns: [
-                {
-                  title: 'Avg Engagement Time by Specialty',
-                  rows: toRows(specialtyColumns),
-                },
-                {
-                  title: 'Avg Engagement Time by Brand',
-                  rows: toRows(brandColumns),
-                },
-              ],
-            },
-      );
+            ],
+            emptyText: 'No sales recorded this month.',
+          },
+        ],
+      });
     } catch (error) {
       console.log('[analytics] PDF export failed', error);
       Alert.alert('Export failed', 'Could not generate the PDF report. Please try again.');

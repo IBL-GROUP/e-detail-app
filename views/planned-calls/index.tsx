@@ -1,11 +1,13 @@
 import { completedDoctorIdsKey, useCompletedDoctorIds } from '@/api/calls';
 import { useInfinitePlannedDoctors } from '@/api/doctor';
 import { AppSearchInput } from '@/components/ui/AppSearchInput';
+import { ClassFilterGroup, classesIn, matchesClassFilter, ALL_CLASSES } from '@/components/ui/ClassFilter';
 import {
-  AppSegmentedToggle,
-  type SegmentedOption,
-} from '@/components/ui/AppSegmentedToggle';
-import { CompletedToggle } from '@/components/ui/CompletedToggle';
+  DOCTOR_FILTERS,
+  DoctorFilterGroup,
+  matchesDoctorFilter,
+  type DoctorFilter,
+} from '@/components/ui/VisitFilter';
 import { ScreenLayout } from '@/components/ui/ScreenLayout';
 import { Colors } from '@/constants/theme';
 import { savePlannedForMie, seedPlannedFromBulk } from '@/lib/offline/plannedBulk';
@@ -35,19 +37,6 @@ const LIST_PAGE = 30;
  * beside the Completed switch — "Unvisited Doctors" three times over would push
  * the group wider than the row it lives in.
  */
-const VISIT_FILTERS = {
-  all: 'all',
-  visited: 'visited',
-  unvisited: 'unvisited',
-} as const;
-
-type VisitFilter = (typeof VISIT_FILTERS)[keyof typeof VISIT_FILTERS];
-
-const VISIT_FILTER_OPTIONS: SegmentedOption<VisitFilter>[] = [
-  { key: VISIT_FILTERS.all, label: 'All' },
-  { key: VISIT_FILTERS.visited, label: 'Visited' },
-  { key: VISIT_FILTERS.unvisited, label: 'Unvisited' },
-];
 
 export default function PlannedCalls() {
   const { user } = useAuth();
@@ -60,7 +49,13 @@ export default function PlannedCalls() {
   // with this device's not-yet-uploaded calls already folded in).
   const { data: serverCompletedIds } = useCompletedDoctorIds(user?.mieId);
   // On = doctors finished for the selected call kind; off = still to do.
-  const [showCompleted, setShowCompleted] = useState(false);
+  /**
+   * Which slice of the book the list is showing. One control, four exclusive
+   * choices — see DoctorFilterGroup.
+   */
+  const [doctorFilter, setDoctorFilter] = useState<DoctorFilter>(
+    DOCTOR_FILTERS.all
+  );
   /**
    * Narrows the list by whether the rep has called this doctor AT ALL this
    * month — not whether their quota is met, which is what the Completed toggle
@@ -70,7 +65,8 @@ export default function PlannedCalls() {
    * visited but still outstanding. That distinction is the point of the filter:
    * it separates "not started" from "in progress".
    */
-  const [visitFilter, setVisitFilter] = useState<VisitFilter>(VISIT_FILTERS.all);
+
+  const [classFilter, setClassFilter] = useState<string>(ALL_CLASSES);
   const [searchQuery, setSearchQuery] = useState('');
   const deferredSearchQuery = useDeferredValue(searchQuery.trim());
   // How many of the cached doctors are currently shown (client-side paging).
@@ -108,7 +104,7 @@ export default function PlannedCalls() {
   // Restart paging when the search, the toggle, or the call kind changes.
   useEffect(() => {
     setVisibleCount(LIST_PAGE);
-  }, [deferredSearchQuery, showCompleted, callKind, visitFilter]);
+  }, [deferredSearchQuery, doctorFilter, callKind, classFilter]);
 
   // Coming back from a call: refetch the server-side counts, so a call that just
   // synced shows its new visit tally rather than the figures this screen was
@@ -216,14 +212,31 @@ export default function PlannedCalls() {
    */
   const showVisitFilter = callKind !== 'group';
 
-  const matchesVisitFilter = useCallback(
-    (doctor: (typeof doctors)[number]) => {
-      if (!showVisitFilter || visitFilter === VISIT_FILTERS.all) return true;
-      const visited = (doctor.visitCount ?? 0) > 0;
-      return visitFilter === VISIT_FILTERS.visited ? visited : !visited;
-    },
-    [showVisitFilter, visitFilter]
+  // Switching to Group with Visited selected would leave the list narrowed by
+  // a control that is no longer on screen.
+  useEffect(() => {
+    if (showVisitFilter) return;
+    setDoctorFilter((current) =>
+      current === DOCTOR_FILTERS.visited || current === DOCTOR_FILTERS.unvisited
+        ? DOCTOR_FILTERS.all
+        : current
+    );
+  }, [showVisitFilter]);
+
+  const isCompletedView = doctorFilter === DOCTOR_FILTERS.completed;
+
+  const matchesRowFilters = useCallback(
+    (doctor: (typeof doctors)[number]) =>
+      matchesDoctorFilter(doctor, doctorFilter, isCompletedForKind) &&
+      matchesClassFilter(doctor, classFilter),
+    [doctorFilter, isCompletedForKind, classFilter]
   );
+
+  /**
+   * Offered from the WHOLE book, not the filtered list — narrowing to A2
+   * would otherwise leave A2 as the only button and strand the rep there.
+   */
+  const classes = useMemo(() => classesIn(doctors), [doctors]);
 
   /**
    * Group is set up as ONE call whose attendees are chosen at the end, so its
@@ -234,30 +247,30 @@ export default function PlannedCalls() {
     () =>
       // The badge counts what the list actually shows, so narrowing the filter
       // can't leave it claiming rows that aren't there.
-      callKind === 'group'
-        ? doctors.filter(matchesVisitFilter).length
-        : doctors.filter((doctor) => isOutstanding(doctor) && matchesVisitFilter(doctor))
+      callKind === 'group' || isCompletedView
+        ? doctors.filter(matchesRowFilters).length
+        : doctors.filter((doctor) => isOutstanding(doctor) && matchesRowFilters(doctor))
             .length,
-    [callKind, doctors, isOutstanding, matchesVisitFilter]
-  );
-  const completedCount = useMemo(
-    () =>
-      doctors.filter(
-        (doctor) => isCompletedForKind(doctor) && matchesVisitFilter(doctor)
-      ).length,
-    [doctors, isCompletedForKind, matchesVisitFilter]
+    [callKind, isCompletedView, doctors, isOutstanding, matchesRowFilters]
   );
 
-  // Toggle on → finished, and at least one call was of this kind; off → still
-  // owed a call, whatever kind it ends up being.
+  /**
+   * Completed shows the doctors who are DONE; every other choice is a
+   * worklist, so it keeps only the ones still owed a call.
+   *
+   * The outstanding test is independent of the call kind, unlike the
+   * completed one: a doctor who finished their four calls in the chamber owes
+   * nothing under Parking either, and listing them there meant tapping into a
+   * doctor with no Start Call button on the other side.
+   */
   const filteredDoctors = useMemo(
     () =>
       doctors.filter(
         (doctor) =>
-          (showCompleted ? isCompletedForKind(doctor) : isOutstanding(doctor)) &&
-          matchesVisitFilter(doctor)
+          (isCompletedView || isOutstanding(doctor)) &&
+          matchesRowFilters(doctor)
       ),
-    [doctors, showCompleted, isCompletedForKind, isOutstanding, matchesVisitFilter]
+    [doctors, isCompletedView, isOutstanding, matchesRowFilters]
   );
 
   const visibleDoctors = useMemo(
@@ -287,7 +300,7 @@ export default function PlannedCalls() {
   // of the call, not before it). But its COMPLETED doctors are an ordinary list,
   // so the toggle swaps the panel out for one — otherwise Group was the only
   // kind where turning the toggle on showed a count and nothing else.
-  const showInstitutionPanel = callKind === 'group' && !showCompleted;
+  const showInstitutionPanel = callKind === 'group' && !isCompletedView;
 
   const kindLabel = CALL_KIND_LABELS[callKind].toLowerCase();
 
@@ -302,15 +315,17 @@ export default function PlannedCalls() {
             {/* Chamber and Parking count what's still OWED, so they carry the
                 total to be a fraction of. Group's list is every assigned doctor
                 and Completed is a plain tally — neither is out of anything. */}
-            <View style={[styles.stickyCount, showCompleted && styles.stickyCountDone]}>
+            <View
+              style={[styles.stickyCount, isCompletedView && styles.stickyCountDone]}
+            >
               <Text
                 style={[
                   styles.stickyCountText,
-                  showCompleted && styles.stickyCountTextDone,
+                  isCompletedView && styles.stickyCountTextDone,
                 ]}
               >
-                {showCompleted ? completedCount : activeCount}
-                {!showCompleted && callKind !== 'group' ? (
+                {activeCount}
+                {!isCompletedView && callKind !== 'group' ? (
                   <Text style={styles.stickyCountTotal}> / {totalLoaded}</Text>
                 ) : null}
               </Text>
@@ -319,26 +334,34 @@ export default function PlannedCalls() {
         </View>
 
         <View style={styles.stickyControls}>
-          {showVisitFilter ? (
-            <View style={styles.filterGroup}>
-              <Text style={styles.filterLabel}>Doctors</Text>
-              <AppSegmentedToggle
-                options={VISIT_FILTER_OPTIONS}
-                value={visitFilter}
-                onChange={setVisitFilter}
-                variant="box"
-              />
-            </View>
-          ) : null}
-          <CompletedToggle value={showCompleted} onChange={setShowCompleted} />
+          {/* Only while a list is actually on screen. A group call picks its
+              attendees at the end, so until Completed is chosen there are no
+              rows for a class to narrow. */}
+          {showInstitutionPanel ? null : (
+            <ClassFilterGroup
+              classes={classes}
+              value={classFilter}
+              onChange={setClassFilter}
+            />
+          )}
+          {/* Always. On a group call this is the All / Completed switch, and
+              hiding it would leave no way to reach the completed list at all. */}
+          <DoctorFilterGroup
+            value={doctorFilter}
+            onChange={setDoctorFilter}
+            visitStates={showVisitFilter}
+          />
         </View>
       </View>
 
-      <AppSearchInput
-        value={searchQuery}
-        onChangeText={setSearchQuery}
-        placeholder="Search doctors by name or specialty"
-      />
+      {/* Dead for the same reason: there is no list under it to search. */}
+      {showInstitutionPanel ? null : (
+        <AppSearchInput
+          value={searchQuery}
+          onChangeText={setSearchQuery}
+          placeholder="Search doctors by name or specialty"
+        />
+      )}
     </View>
   );
 
@@ -428,12 +451,12 @@ export default function PlannedCalls() {
             filteredDoctors.length === 0 ? (
               <View style={styles.stateCard}>
                 <Text style={styles.stateTitle}>
-                  {showCompleted
+                  {isCompletedView
                     ? `No completed ${kindLabel} calls yet`
                     : 'No doctors left to call'}
                 </Text>
                 <Text style={styles.stateText}>
-                  {showCompleted
+                  {isCompletedView
                     ? `Doctors finish here once their month's calls are done and one was a ${kindLabel} call.`
                     : 'Every assigned doctor has finished their calls for the month.'}
                 </Text>
@@ -500,20 +523,12 @@ const styles = StyleSheet.create({
     flexShrink: 0,
     flexDirection: 'row',
     alignItems: 'center',
+    // Three controls now, so they wrap among themselves on a narrow screen
+    // rather than pushing the row wider than it can go.
+    flexWrap: 'wrap',
     gap: 14,
   },
-  // Tighter than the gap to the Completed switch, so the label reads as
-  // belonging to the filter beside it rather than floating between the two.
-  filterGroup: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 8,
-  },
-  filterLabel: {
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.textMuted,
-  },
+
   stickyTitleBlock: {
     flex: 1,
     minWidth: 0,

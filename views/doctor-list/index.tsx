@@ -1,10 +1,16 @@
-import { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import { useInfinitePlannedDoctors } from '@/api/doctor';
 import { AppSearchInput } from '@/components/ui/AppSearchInput';
-import { CompletedToggle } from '@/components/ui/CompletedToggle';
+import { ClassFilterGroup, classesIn, matchesClassFilter, ALL_CLASSES } from '@/components/ui/ClassFilter';
+import {
+  DOCTOR_FILTERS,
+  DoctorFilterGroup,
+  matchesDoctorFilter,
+  type DoctorFilter,
+} from '@/components/ui/VisitFilter';
 import { ScreenLayout } from '@/components/ui/ScreenLayout';
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/providers/AuthProvider';
@@ -26,8 +32,14 @@ export default function DoctorList() {
   const [searchQuery, setSearchQuery] = useState('');
   const deferredSearchQuery = useDeferredValue(searchQuery.trim());
   const [visibleCount, setVisibleCount] = useState(LIST_PAGE);
-  // On = only doctors whose whole month's quota is met.
-  const [showCompleted, setShowCompleted] = useState(false);
+  /**
+   * Which slice of the book is on show. One control, four exclusive choices —
+   * see DoctorFilterGroup.
+   */
+  const [doctorFilter, setDoctorFilter] = useState<DoctorFilter>(
+    DOCTOR_FILTERS.all
+  );
+  const [classFilter, setClassFilter] = useState<string>(ALL_CLASSES);
 
   const doctorsQuery = useInfinitePlannedDoctors({
     mieId: user?.mieId,
@@ -43,23 +55,26 @@ export default function DoctorList() {
    * Done for the month across EVERY call kind — this screen is the combined
    * view, so an A4 doctor counts once they reach 4 calls however they were
    * conducted. The per-kind split lives on Call Reporting.
+   *
+   * A doctor with no quota can never be complete: there is nothing to finish.
    */
+  const isMonthComplete = useCallback(
+    (doctor: (typeof allDoctors)[number]) =>
+      Boolean(doctor.maxVisits) && (doctor.visitCount ?? 0) >= (doctor.maxVisits ?? 0),
+    []
+  );
+
   const completedCount = useMemo(
-    () =>
-      allDoctors.filter(
-        (doctor) => doctor.maxVisits && (doctor.visitCount ?? 0) >= doctor.maxVisits
-      ).length,
-    [allDoctors]
+    () => allDoctors.filter(isMonthComplete).length,
+    [allDoctors, isMonthComplete]
   );
 
   const doctors = useMemo(() => {
-    let mapped = allDoctors;
-
-    if (showCompleted) {
-      mapped = mapped.filter(
-        (doctor) => doctor.maxVisits && (doctor.visitCount ?? 0) >= doctor.maxVisits
-      );
-    }
+    let mapped = allDoctors.filter(
+      (doctor) =>
+        matchesDoctorFilter(doctor, doctorFilter, isMonthComplete) &&
+        matchesClassFilter(doctor, classFilter)
+    );
 
     const search = deferredSearchQuery.toLowerCase();
     if (!search) return mapped;
@@ -69,12 +84,18 @@ export default function DoctorList() {
         value?.toLowerCase().includes(search)
       )
     );
-  }, [allDoctors, deferredSearchQuery, showCompleted]);
+  }, [allDoctors, deferredSearchQuery, doctorFilter, classFilter, isMonthComplete]);
 
   // Restart paging whenever the search or the toggle narrows the list.
   useEffect(() => {
     setVisibleCount(LIST_PAGE);
-  }, [deferredSearchQuery, showCompleted]);
+  }, [deferredSearchQuery, doctorFilter, classFilter]);
+
+  /**
+   * Offered from the WHOLE book, not the filtered list — narrowing to A2
+   * would otherwise leave A2 as the only button and strand the rep there.
+   */
+  const classes = useMemo(() => classesIn(allDoctors), [allDoctors]);
 
   const visibleDoctors = useMemo(
     () => doctors.slice(0, visibleCount),
@@ -94,20 +115,29 @@ export default function DoctorList() {
           <View style={styles.stickyTitleBlock}>
             <View style={styles.stickyTitleRow}>
               <Text style={styles.stickyTitle}>
-                {showCompleted ? 'Completed Doctors' : 'All Doctors'}
+                {doctorFilter === DOCTOR_FILTERS.completed
+                  ? 'Completed Doctors'
+                  : 'All Doctors'}
               </Text>
               <View style={styles.stickyCount}>
                 <Text style={styles.stickyCountText}>{doctors.length}</Text>
               </View>
             </View>
             <Text style={styles.stickySubtitle} numberOfLines={1}>
-              {showCompleted
-                ? "Monthly calls complete"
+              {doctorFilter === DOCTOR_FILTERS.completed
+                ? 'Monthly calls complete'
                 : `${completedCount} of ${allDoctors.length} complete this month`}
             </Text>
           </View>
 
-          <CompletedToggle value={showCompleted} onChange={setShowCompleted} />
+          <View style={styles.stickyControls}>
+            <ClassFilterGroup
+              classes={classes}
+              value={classFilter}
+              onChange={setClassFilter}
+            />
+            <DoctorFilterGroup value={doctorFilter} onChange={setDoctorFilter} />
+          </View>
         </View>
 
         <AppSearchInput
@@ -140,7 +170,7 @@ export default function DoctorList() {
                 <Text style={styles.stateText}>
                   {deferredSearchQuery
                     ? 'No doctor matches this search.'
-                    : showCompleted
+                    : doctorFilter === DOCTOR_FILTERS.completed
                       ? 'No doctor has finished their monthly calls yet.'
                       : `We did not find doctor records for ${user?.name ?? 'this rep'} yet.`}
                 </Text>
@@ -183,7 +213,20 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
+    // The title plus both controls outgrow a phone, so they drop onto their
+    // own lines there instead of squeezing each other.
+    flexWrap: 'wrap',
     gap: 12,
+  },
+  // The filter and the Completed switch travel together as one group.
+  stickyControls: {
+    flexShrink: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    // Three controls now, so they wrap among themselves on a narrow screen
+    // rather than pushing the row wider than it can go.
+    flexWrap: 'wrap',
+    gap: 14,
   },
   stickyTitleBlock: {
     flex: 1,
