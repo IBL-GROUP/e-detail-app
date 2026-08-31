@@ -41,7 +41,11 @@ interface CallSummaryModalProps {
 
 // Ordered from the rep's own manager upward (RM → SM → HOS → NSM), so the most
 // common companions come first. 'No' stays first as the default.
-const JOINT_CALL_OPTIONS = ['No', 'RM', 'SM', 'HOS', 'NSM'];
+//
+// It is also the odd one out: the roles say WHO joined, 'No' says nobody did.
+// See toggleJointCall — the two can never be selected together.
+const JOINT_CALL_NONE = 'No';
+const JOINT_CALL_OPTIONS = [JOINT_CALL_NONE, 'RM', 'SM', 'HOS', 'NSM'];
 // const DOCTOR_INTEREST_OPTIONS = ['High', 'Medium', 'Low'] as const; // hidden for now
 const QUICK_FEEDBACK_OPTIONS = [
   'Interested',
@@ -81,7 +85,7 @@ export function CallSummaryModal({
   const isLandscape = width > height;
   const [selectedDoctor, setSelectedDoctor] = useState('');
   const [selectedDoctors, setSelectedDoctors] = useState<string[]>([]);
-  const [jointCall, setJointCall] = useState<string[]>(['No']);
+  const [jointCall, setJointCall] = useState<string[]>([JOINT_CALL_NONE]);
   const [samplesProvided, setSamplesProvided] = useState('None');
   const doctorHasSelection = multiDoctor
     ? selectedDoctors.length > 0
@@ -113,12 +117,34 @@ export function CallSummaryModal({
     );
   };
 
+  /**
+   * "No" and the manager roles are mutually exclusive answers to one question,
+   * so they can't both stand: picking RM has to clear No, and picking No has to
+   * clear whoever was listed. Left as a plain multi-select, a call could be
+   * submitted as "No, RM" — which is not an answer, and went to the server as
+   * exactly that string.
+   *
+   * The roles stay multi-selectable among THEMSELVES: an RM and an SM can both
+   * sit in on the same call.
+   */
   const toggleJointCall = (option: string) => {
-    setJointCall((current) =>
-      current.includes(option)
-        ? current.filter((item) => item !== option)
-        : [...current, option]
-    );
+    setJointCall((current) => {
+      if (option === JOINT_CALL_NONE) {
+        // Tapping No always means No, including when it is already the answer —
+        // deselecting it would leave the question blank, and it is the one
+        // option that can't be expressed by picking something else.
+        return [JOINT_CALL_NONE];
+      }
+
+      const withoutNone = current.filter((item) => item !== JOINT_CALL_NONE);
+      const next = withoutNone.includes(option)
+        ? withoutNone.filter((item) => item !== option)
+        : [...withoutNone, option];
+
+      // Clearing the last role puts the answer back to No rather than leaving
+      // nothing selected — the question is always answered.
+      return next.length > 0 ? next : [JOINT_CALL_NONE];
+    });
   };
 
   return (

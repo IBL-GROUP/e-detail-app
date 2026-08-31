@@ -53,7 +53,7 @@ export default function MyBrands() {
 
   return (
     <ScreenLayout
-      title="Brands & SKUs"
+      title="Portfolio"
       subtitle={user?.name}
       scrollable={false}
       showBack

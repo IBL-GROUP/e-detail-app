@@ -44,7 +44,7 @@ export default function ContentLibrary() {
   }, [brands, columns]);
 
   return (
-    <ScreenLayout title="Content" subtitle={user?.team} scrollable={false} showBack>
+    <ScreenLayout title="Product Content for e-Detailing" subtitle={user?.team} scrollable={false} showBack>
       <FlatList
         // Changing numColumns needs a fresh list instance.
         key={`columns-${columns}`}

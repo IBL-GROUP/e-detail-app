@@ -562,6 +562,25 @@ export default function CallScreen({
           // This report is about the call just finished, not the whole month.
           mode: 'single',
           doctorName: effectiveDoctorName,
+          /**
+           * A group call collapses to "Group Call · 3 doctors" above, which says
+           * how many but not who — so each attendee travels separately, with
+           * the date the rep last called on them.
+           *
+           * The date is read HERE rather than on the report, for two reasons.
+           * The report is opened with the placeholder id 'institution-group',
+           * so its own summary query can never answer this. And this map is the
+           * same one recordCallToOutbox resolves attendees through, read before
+           * this call lands in the ledger — so the date is the PREVIOUS call,
+           * which is what "when did I last see them" means.
+           */
+          doctorAttendees: JSON.stringify(
+            (summary.selectedDoctors ?? []).map((name) => ({
+              name,
+              lastVisit:
+                doctorByName.get(name.trim().toLowerCase())?.LastVisit ?? null,
+            })),
+          ),
           duration: String(elapsedSeconds),
           previousDuration: previousDuration != null ? String(previousDuration) : '',
           slidesViewed: String(slidesViewed),
@@ -586,6 +605,7 @@ export default function CallScreen({
       callType,
       doctorId,
       doctorName,
+      doctorByName,
       isGroupCall,
       elapsedSeconds,
       returnToNewDoctor,

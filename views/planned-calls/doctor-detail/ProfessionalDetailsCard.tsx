@@ -46,7 +46,9 @@ export function ProfessionalDetailsCard({
 }: ProfessionalDetailsCardProps) {
   return (
     <View style={styles.card}>
-      <Text style={styles.title}>Professional Details</Text>
+      {/* Heading hidden — every field carries its own label, so "Professional
+          Details" only added a line above facts that already name themselves.
+          The style is kept for when it comes back. */}
       <View style={styles.grid}>
         {/* HOSPITAL and ADDRESS are TEMPORARILY hidden — no source column feeds
             them yet, so both always rendered a dash. The props are kept so they

@@ -107,7 +107,7 @@ export default function DoctorList() {
   };
 
   return (
-    <ScreenLayout title="Doctor List" subtitle={user?.name} scrollable={false} showBack>
+    <ScreenLayout title="Doctors" subtitle={user?.name} scrollable={false} showBack>
       {/* Pinned: the combined completion filter and the search stay reachable
           while the book scrolls beneath them. */}
       <View style={styles.stickyHeader}>

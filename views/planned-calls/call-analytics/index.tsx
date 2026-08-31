@@ -6,7 +6,15 @@ import { Colors } from '@/constants/theme';
 import { queueReturnToNewDoctor } from '@/views/unplanned-calls/returnToNewDoctorStore';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useState } from 'react';
+import {
+  LayoutChangeEvent,
+  Pressable,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { CALL_KIND_LABELS, CallType, type CallKind } from '../callTypes';
 import { MonthlyCallSummary } from './MonthlyCallSummary';
@@ -22,6 +30,18 @@ export type AnalyticsMode = 'single' | 'combined';
 
 interface CallAnalyticsProps {
   doctorName?: string;
+  /**
+   * Every doctor in the room, for a group call, each with the date the rep last
+   * called on them (null if never). The header line above collapses to
+   * "Group Call · 3 doctors", which says how many but not who — these name them
+   * and carry their own history.
+   *
+   * Resolved by the CALL SCREEN, not here: a group call is opened with the
+   * placeholder id 'institution-group', so this screen's own summary query has
+   * no real doctor to ask about. Empty for a single-doctor call, where the name
+   * is already the header and `summary` answers for the history.
+   */
+  doctorAttendees?: { name: string; lastVisit: string | null }[];
   /** Needed to pull the month's real call history for this doctor. */
   doctorId?: string;
   mieId?: string;
@@ -37,6 +57,13 @@ interface CallAnalyticsProps {
   totalSlides: number;
   feedback: string;
   doctorInterest?: 'High' | 'Medium' | 'Low';
+  /**
+   * Who sat in on the call, as the summary recorded it — 'No', or a comma
+   * separated list of manager roles ('RM, SM').
+   */
+  jointCall?: string;
+  /** The SKU handed over, or 'None'. */
+  samplesProvided?: string;
   slideTimes: number[];
   slideLabels?: string[];
   /** Seconds per brand — drives the chart. */
@@ -63,6 +90,69 @@ function formatSlideTime(seconds: number) {
 
   return `${minutes}m ${remainingSeconds}s`;
 }
+
+/**
+ * A stored YYYY-MM-DD as the header writes it. Parsed at local midnight rather
+ * than through `new Date(iso)`, which reads a bare date as UTC and can land on
+ * the previous day for anyone west of it.
+ *
+ * Anything unparseable is handed back untouched — better a raw value than a
+ * confidently wrong date.
+ */
+function formatDateLabel(date: Date) {
+  return date.toLocaleDateString(undefined, {
+    year: 'numeric',
+    month: 'short',
+    day: 'numeric',
+  });
+}
+
+function formatVisitDate(value: string) {
+  const date = new Date(`${value}T00:00:00`);
+  if (Number.isNaN(date.getTime())) return value;
+
+  return formatDateLabel(date);
+}
+
+/**
+ * The date to put against one attendee of the group call just finished.
+ *
+ * `lastVisit` is what the doctor book held BEFORE this call was recorded, so a
+ * doctor the rep had seen before shows that earlier date. A doctor they had
+ * never called has none — and the answer there is today, because the call just
+ * made is now their most recent one. Every pill carries a real date either way;
+ * "First call" left the rep looking at a report of a call they had just made
+ * and being told none existed.
+ */
+function attendeeVisitLabel(lastVisit: string | null) {
+  return lastVisit ? formatVisitDate(lastVisit) : formatDateLabel(new Date());
+}
+
+/**
+ * A comma-joined summary field as a list of tags, minus its "nothing" sentinel.
+ *
+ * The call summary submits these as plain strings — 'No' / 'RM, SM' for the
+ * joint call, 'None' / a SKU name for samples — so the sentinel has to be
+ * recognised by value. Compared case-insensitively because it is user-facing
+ * copy, not an enum.
+ */
+function splitRecorded(value: string | undefined, sentinel: string) {
+  return (value ?? '')
+    .split(',')
+    .map((item) => item.trim())
+    .filter((item) => item && item.toLowerCase() !== sentinel);
+}
+
+/**
+ * The width at which Call Details' two columns stop wrapping and sit abreast —
+ * both columns at their minimum plus the gap between them. Kept next to the
+ * styles it mirrors (callDetailColumn.minWidth, callDetailColumns.columnGap);
+ * change one and this has to move with it.
+ */
+const DETAIL_COLUMN_MIN_WIDTH = 240;
+const DETAIL_COLUMN_GAP = 24;
+const DETAIL_TWO_COLUMN_WIDTH =
+  DETAIL_COLUMN_MIN_WIDTH * 2 + DETAIL_COLUMN_GAP;
 
 function getBrandLabel(index: number) {
   return `Brand ${index + 1}`;
@@ -169,6 +259,7 @@ function getFeedbackToneLabel(feedback: string, doctorInterest?: 'High' | 'Mediu
 
 export default function CallAnalytics({
   doctorName,
+  doctorAttendees = [],
   doctorId,
   mieId,
   mode = 'single',
@@ -180,6 +271,8 @@ export default function CallAnalytics({
   totalSlides,
   feedback,
   doctorInterest,
+  jointCall,
+  samplesProvided,
   slideTimes,
   slideLabels,
   brandTimes,
@@ -187,6 +280,29 @@ export default function CallAnalytics({
   returnToNewDoctor = false,
 }: CallAnalyticsProps) {
   const isCombined = mode === 'combined';
+
+  /**
+   * Both arrive as the comma-joined strings the summary submitted, with a
+   * sentinel for "nothing" — 'No' for the joint call, 'None' for samples. The
+   * sentinels are dropped here so the card can show its own empty state rather
+   * than a tag reading "No", which looks like a manager called No.
+   */
+  const jointCallRoles = splitRecorded(jointCall, 'no');
+  const sampleNames = splitRecorded(samplesProvided, 'none');
+
+  /**
+   * Whether Call Details' two columns are actually sitting side by side.
+   *
+   * Measured rather than derived from the window: the rule that decides it is
+   * flexbox wrapping inside the card, and reproducing that from screen width
+   * would mean hard-coding every padding between here and the edge. Wrong by a
+   * few points and the divider draws down the left of a stacked column.
+   */
+  const [detailColumnsWidth, setDetailColumnsWidth] = useState(0);
+  const showDetailDivider = detailColumnsWidth >= DETAIL_TWO_COLUMN_WIDTH;
+  const handleDetailColumnsLayout = (event: LayoutChangeEvent) => {
+    setDetailColumnsWidth(event.nativeEvent.layout.width);
+  };
 
   // callKind arrives as a loose string off the route params, so it is mapped
   // rather than indexed blind: 'parking' reads as Walking, and anything
@@ -218,23 +334,8 @@ export default function CallAnalytics({
   const callSkuTimes = skuTimes ?? [];
   const hasSkuBreakdown = callSkuTimes.length > 0;
 
-  // Coverage headline: how much of the month's quota this doctor has had.
-  // Falls back to a plain count when their class carries no quota.
-  const callsDoneLabel = summary?.maxVisits
-    ? `${summary.visitsDone} of ${summary.maxVisits} calls done this month`
-    : `${summary?.totalCalls ?? 0} call${summary?.totalCalls === 1 ? '' : 's'} done this month`;
-
   const lastVisitLabel = summary?.lastVisit
-    ? (() => {
-        const date = new Date(`${summary.lastVisit}T00:00:00`);
-        return Number.isNaN(date.getTime())
-          ? summary.lastVisit
-          : date.toLocaleDateString(undefined, {
-              year: 'numeric',
-              month: 'short',
-              day: 'numeric',
-            });
-      })()
+    ? formatVisitDate(summary.lastVisit)
     : null;
 
   // Duration compared to the previous call: how much longer (+) or shorter (-).
@@ -326,7 +427,36 @@ export default function CallAnalytics({
             {doctorName ?? 'This doctor'}
           </Text>
 
-          <Text style={styles.headerProgress}>{callsDoneLabel}</Text>
+          {/* Who was actually in the room, and when the rep last saw each of
+              them. Only a group call carries these — a single-doctor call has
+              the name in the line above and the date in the row below. */}
+          {doctorAttendees.length > 0 ? (
+            <View style={styles.headerDoctorPills}>
+              {doctorAttendees.map((attendee) => (
+                <View key={attendee.name} style={styles.headerDoctorPill}>
+                  <Ionicons
+                    name="person-outline"
+                    size={12}
+                    color={Colors.textOnDark}
+                  />
+                  <Text style={styles.headerDoctorPillText} numberOfLines={1}>
+                    {attendee.name}
+                  </Text>
+                  {/* Splits the pill into who and when, so a long name doesn't
+                      run straight into a date and read as one string. */}
+                  <View style={styles.headerDoctorPillRule} />
+                  <Ionicons
+                    name="time-outline"
+                    size={11}
+                    color="rgba(255,255,255,0.68)"
+                  />
+                  <Text style={styles.headerDoctorPillMeta} numberOfLines={1}>
+                    {attendeeVisitLabel(attendee.lastVisit)}
+                  </Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
 
           <View style={styles.completedBadge}>
             <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" />
@@ -334,16 +464,21 @@ export default function CallAnalytics({
               {isCombined
                 ? // Names the scope so a group-only report never reads as if it
                   // covered every call the doctor had.
-                  `${summary?.totalCalls ?? 0} ${shownKind ? `${shownKind} ` : ''}Calls Finished`
-                : 'Call Finished'}
+                  `${summary?.totalCalls ?? 0} ${shownKind ? `${shownKind} ` : ''}Calls Completed`
+                : 'Call Completed'}
             </Text>
           </View>
 
-          {lastVisitLabel ? (
+          {/* The single-doctor case only, and only when there IS a date.
+              A group call carries a date per attendee in the pills above, where
+              one shared row could not say whose history it meant. */}
+          {lastVisitLabel && doctorAttendees.length === 0 ? (
             <View style={styles.headerFacts}>
               <View style={styles.headerFact}>
                 <Ionicons name="time-outline" size={13} color={Colors.textOnDark} />
-                <Text style={styles.headerFactText}>Last visit: {lastVisitLabel}</Text>
+                <Text style={styles.headerFactText}>
+                  Last call: {lastVisitLabel}
+                </Text>
               </View>
             </View>
           ) : null}
@@ -392,57 +527,119 @@ export default function CallAnalytics({
           */}
         </View>
 
-        {/* What THIS call covered — only meaningful for a single-call report. */}
+        {/* What THIS call covered — only meaningful for a single-call report.
+            One card, two columns: what was DETAILED on the left, how the call
+            was CONDUCTED on the right. The columns wrap to a stack below their
+            minimum width, so a phone reads it as one list. */}
         {!isCombined ? (
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Call Details</Text>
 
-            <View style={styles.callDetailRows}>
-              <View style={styles.callDetailRow}>
-                <Text style={styles.callDetailLabel}>Call type</Text>
-                <View style={styles.callDetailValue}>
-                  <Tag label={shownKind ?? callType} tone="neutral" />
-                </View>
-              </View>
-
-              <View style={styles.callDetailRow}>
-                <Text style={styles.callDetailLabel}>
-                  Brands ({callBrandTimes.length})
-                </Text>
-                <View style={styles.callDetailValue}>
-                  {callBrandTimes.length > 0 ? (
-                    callBrandTimes.map((brand) => (
-                      <Tag
-                        key={brand.name}
-                        label={brand.name}
-                        icon="cube-outline"
-                        tone="primary"
-                      />
-                    ))
-                  ) : (
-                    <Text style={styles.callDetailEmpty}>None recorded</Text>
-                  )}
-                </View>
-              </View>
-
-              {/* Only shown when the forcing was SKU-wise. */}
-              {hasSkuBreakdown ? (
+            <View
+              style={styles.callDetailColumns}
+              onLayout={handleDetailColumnsLayout}
+            >
+              {/* Left: what was detailed. */}
+              <View style={styles.callDetailColumn}>
                 <View style={styles.callDetailRow}>
-                  <Text style={styles.callDetailLabel}>
-                    SKUs ({callSkuTimes.length})
-                  </Text>
+                  <Text style={styles.callDetailLabel}>Call type</Text>
                   <View style={styles.callDetailValue}>
-                    {callSkuTimes.map((sku) => (
-                      <Tag
-                        key={sku.name}
-                        label={sku.name}
-                        icon="pricetag-outline"
-                        tone="neutral"
-                      />
-                    ))}
+                    <Tag label={shownKind ?? callType} tone="neutral" />
                   </View>
                 </View>
+
+                <View style={styles.callDetailRow}>
+                  <Text style={styles.callDetailLabel}>
+                    Brands ({callBrandTimes.length})
+                  </Text>
+                  <View style={styles.callDetailValue}>
+                    {callBrandTimes.length > 0 ? (
+                      callBrandTimes.map((brand) => (
+                        <Tag
+                          key={brand.name}
+                          label={brand.name}
+                          icon="cube-outline"
+                          tone="primary"
+                        />
+                      ))
+                    ) : (
+                      <Text style={styles.callDetailEmpty}>None recorded</Text>
+                    )}
+                  </View>
+                </View>
+
+                {/* Only shown when the forcing was SKU-wise. */}
+                {hasSkuBreakdown ? (
+                  <View style={styles.callDetailRow}>
+                    <Text style={styles.callDetailLabel}>
+                      SKUs ({callSkuTimes.length})
+                    </Text>
+                    <View style={styles.callDetailValue}>
+                      {callSkuTimes.map((sku) => (
+                        <Tag
+                          key={sku.name}
+                          label={sku.name}
+                          icon="pricetag-outline"
+                          tone="neutral"
+                        />
+                      ))}
+                    </View>
+                  </View>
+                ) : null}
+              </View>
+
+              {/* Only while the columns are actually abreast — once they wrap
+                  to a stack this would draw down the left of the lower one. */}
+              {showDetailDivider ? (
+                <View style={styles.callDetailDivider} />
               ) : null}
+
+              {/* Right: how the call was conducted. */}
+              <View style={styles.callDetailColumn}>
+                <View style={styles.callDetailRow}>
+                  <Text style={styles.callDetailLabel}>Joint call</Text>
+                  <View style={styles.callDetailValue}>
+                    {jointCallRoles.length > 0 ? (
+                      jointCallRoles.map((role) => (
+                        <Tag
+                          key={role}
+                          label={role}
+                          icon="people-outline"
+                          tone="primary"
+                        />
+                      ))
+                    ) : (
+                      // Said plainly rather than as a tag: "no manager joined"
+                      // is the normal case, and a chip for it would read as a
+                      // fact recorded about the call rather than the absence
+                      // of one.
+                      <Text style={styles.callDetailEmpty}>
+                        Not a joint call
+                      </Text>
+                    )}
+                  </View>
+                </View>
+
+                <View style={styles.callDetailRow}>
+                  <Text style={styles.callDetailLabel}>
+                    Samples provided ({sampleNames.length})
+                  </Text>
+                  <View style={styles.callDetailValue}>
+                    {sampleNames.length > 0 ? (
+                      sampleNames.map((name) => (
+                        <Tag
+                          key={name}
+                          label={name}
+                          icon="cube-outline"
+                          tone="neutral"
+                        />
+                      ))
+                    ) : (
+                      <Text style={styles.callDetailEmpty}>None provided</Text>
+                    )}
+                  </View>
+                </View>
+              </View>
             </View>
           </View>
         ) : null}
@@ -560,12 +757,51 @@ const styles = StyleSheet.create({
     lineHeight: 22,
     textAlign: 'center',
   },
-  headerProgress: {
-    color: 'rgba(255,255,255,0.72)',
-    fontSize: 13,
+  // The group's doctors, under the "Group Call · N doctors" line. Centred and
+  // wrapping, so three names read as one block rather than a ragged list.
+  headerDoctorPills: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    justifyContent: 'center',
+    gap: 6,
+    marginTop: 2,
+  },
+  headerDoctorPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    // Same translucent-white treatment as the facts row below, so the header
+    // reads as one surface rather than three unrelated chip styles.
+    backgroundColor: 'rgba(255,255,255,0.16)',
+    borderRadius: 999,
+    paddingHorizontal: 10,
+    paddingVertical: 4,
+    // A long doctor name shrinks rather than pushing the row off the header.
+    maxWidth: '100%',
+    flexShrink: 1,
+  },
+  headerDoctorPillText: {
+    flexShrink: 1,
+    color: Colors.textOnDark,
+    fontSize: 12,
+    fontWeight: '700',
+  },
+  // Full-width rather than a hairline: at 0.5pt this all but disappears against
+  // the header's navy. Inset vertically so it reads as a divider inside the
+  // pill rather than a line cutting the pill in two.
+  headerDoctorPillRule: {
+    width: 1,
+    alignSelf: 'stretch',
+    marginVertical: 3,
+    marginHorizontal: 2,
+    backgroundColor: 'rgba(255,255,255,0.30)',
+  },
+  // The date rides in the same pill, dimmed — it qualifies the name rather than
+  // competing with it, and a separate chip per date would double the row.
+  headerDoctorPillMeta: {
+    color: 'rgba(255,255,255,0.68)',
+    fontSize: 11,
     fontWeight: '600',
-    lineHeight: 18,
-    textAlign: 'center',
   },
   headerFacts: {
     flexDirection: 'row',
@@ -628,6 +864,33 @@ const styles = StyleSheet.create({
   detailGrid: {
     gap: 16,
   },
+  // Call Details' two columns. Explicit columns rather than one wrapping list of
+  // fields: the left column is what was detailed and the right is how the call
+  // was conducted, and a wrapping list would reshuffle that pairing whenever a
+  // field appeared or dropped out (SKUs only show for a SKU-wise deck).
+  callDetailColumns: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    columnGap: DETAIL_COLUMN_GAP,
+    rowGap: 12,
+    marginTop: 12,
+  },
+  callDetailColumn: {
+    // flexBasis 0 rather than a percentage: with the divider between them the
+    // two columns share whatever is left over evenly, so the rule lands in the
+    // middle of the card instead of drifting with the content.
+    flexGrow: 1,
+    flexBasis: 0,
+    // Below this they wrap and stack, which is what a phone gets.
+    minWidth: DETAIL_COLUMN_MIN_WIDTH,
+    gap: 12,
+  },
+  // A hairline between the columns, stretched to whichever is taller.
+  callDetailDivider: {
+    width: StyleSheet.hairlineWidth,
+    alignSelf: 'stretch',
+    backgroundColor: Colors.border,
+  },
   sideColumn: {
     gap: 16,
   },
@@ -643,10 +906,6 @@ const styles = StyleSheet.create({
   },
   chartCard: {
     minHeight: 270,
-  },
-  callDetailRows: {
-    gap: 12,
-    marginTop: 12,
   },
   callDetailRow: {
     gap: 6,

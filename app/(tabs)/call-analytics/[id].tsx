@@ -3,6 +3,11 @@ import CallAnalytics, { type AnalyticsMode } from '@/views/planned-calls/call-an
 import { CallType } from '@/views/planned-calls/callTypes';
 import { useAuth } from '@/providers/AuthProvider';
 
+/** Route params arrive as `string | string[]`; take the first either way. */
+function firstParam(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 function parseNumber(value: string | string[] | undefined, fallback = 0) {
   const rawValue = Array.isArray(value) ? value[0] : value;
   const parsed = Number(rawValue);
@@ -40,8 +45,9 @@ function parseNamedTimes(value: string | string[] | undefined) {
   }
 }
 
-function parseSlideLabels(value: string | string[] | undefined) {
-  const rawValue = Array.isArray(value) ? value[0] : value;
+/** A JSON string[] param — currently the slide labels. */
+function parseStringList(value: string | string[] | undefined) {
+  const rawValue = firstParam(value);
   if (!rawValue) return [];
 
   try {
@@ -49,6 +55,26 @@ function parseSlideLabels(value: string | string[] | undefined) {
     return Array.isArray(parsed)
       ? parsed.map((item) => String(item)).filter(Boolean)
       : [];
+  } catch {
+    return [];
+  }
+}
+
+/** The group call's attendees: `[{ name, lastVisit }]`, lastVisit possibly null. */
+function parseAttendees(value: string | string[] | undefined) {
+  const rawValue = firstParam(value);
+  if (!rawValue) return [];
+
+  try {
+    const parsed = JSON.parse(rawValue);
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed
+      .map((item) => ({
+        name: String(item?.name ?? '').trim(),
+        lastVisit: item?.lastVisit ? String(item.lastVisit) : null,
+      }))
+      .filter((item) => item.name);
   } catch {
     return [];
   }
@@ -64,6 +90,8 @@ export default function CallAnalyticsRoute() {
     totalSlides?: string;
     feedback?: string;
     doctorInterest?: 'High' | 'Medium' | 'Low';
+    jointCall?: string;
+    samplesProvided?: string;
     slideTimes?: string;
     slideLabels?: string;
     brandTimes?: string;
@@ -72,6 +100,7 @@ export default function CallAnalyticsRoute() {
     callKind?: string;
     mode?: string;
     doctorName?: string;
+    doctorAttendees?: string;
     returnToNewDoctor?: string;
   }>();
 
@@ -107,6 +136,7 @@ export default function CallAnalyticsRoute() {
   return (
     <CallAnalytics
       doctorName={doctorName}
+      doctorAttendees={parseAttendees(params.doctorAttendees)}
       doctorId={doctorId}
       mieId={user?.mieId}
       mode={mode}
@@ -118,8 +148,12 @@ export default function CallAnalyticsRoute() {
       totalSlides={parseNumber(params.totalSlides, 1)}
       feedback={params.feedback || 'No feedback provided'}
       doctorInterest={params.doctorInterest}
+      // Sent by the call screen since the summary was added, but never read
+      // here — so the report could not state who joined or what was handed over.
+      jointCall={firstParam(params.jointCall)}
+      samplesProvided={firstParam(params.samplesProvided)}
       slideTimes={parseSlideTimes(params.slideTimes)}
-      slideLabels={parseSlideLabels(params.slideLabels)}
+      slideLabels={parseStringList(params.slideLabels)}
       brandTimes={parseNamedTimes(params.brandTimes)}
       skuTimes={parseNamedTimes(params.skuTimes)}
       returnToNewDoctor={returnToNewDoctor}
