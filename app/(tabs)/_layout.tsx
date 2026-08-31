@@ -32,7 +32,7 @@ export default function TabLayout() {
       <Tabs.Screen
         name="planned-calls"
         options={{
-          title: 'Call Reporting',
+          title: 'e-Detailing',
           tabBarIcon: ({ color }) => <IconSymbol size={24} name="calendar.badge.checkmark" color={color} />,
         }}
       />

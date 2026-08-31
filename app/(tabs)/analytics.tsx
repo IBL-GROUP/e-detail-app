@@ -5,7 +5,12 @@ import {
   type EngagementSlice,
 } from '@/api/calls';
 import { useInfinitePlannedDoctors } from '@/api/doctor';
-import { formatAmount, useMieSales, type SalesSlice } from '@/api/sales';
+import {
+  formatAmount,
+  useMieSales,
+  type MieSalesSummary,
+  type SalesSlice,
+} from '@/api/sales';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppChartCard } from '@/components/ui/AppChartCard';
 import { AppColumnChart, ColumnChartPoint } from '@/components/ui/AppColumnChart';
@@ -81,7 +86,93 @@ const PERFORMANCE_VIEWS: SegmentedOption<PerformanceView>[] = [
 ];
 
 /**
- * A sales breakdown as the column chart wants it — the amount above each bar.
+ * Which figure the sales breakdowns are plotted in.
+ *
+ * Every slice the backend returns carries BOTH: `amount` (rupees) and `soldQty`
+ * (packs). They answer different questions — a high-value brand can be a small
+ * number of units, and a rep chasing volume targets needs the second one — so
+ * the charts switch between them rather than picking one.
+ */
+type SalesMeasure = 'value' | 'units';
+
+const SALES_MEASURES: SegmentedOption<SalesMeasure>[] = [
+  { key: 'value', label: 'Value' },
+  { key: 'units', label: 'Units' },
+];
+
+/**
+ * The three sales breakdown cards, in the order the view shows them.
+ *
+ * Declared out here rather than inline so the per-card measure state can be
+ * keyed off the same list — one place decides which cards exist, and adding a
+ * fourth gives it its own toggle for free.
+ *
+ * Brand is always rendered even though the sales query may carry no brand rows
+ * — it shows its empty state rather than disappearing, so the layout stays put
+ * and the gap is visible.
+ */
+const SALES_BREAKDOWNS = [
+  {
+    key: 'brand',
+    title: 'Sales by Brand',
+    icon: 'cube-outline',
+    slicesOf: (sales?: MieSalesSummary) => sales?.byBrand ?? [],
+  },
+  {
+    key: 'sku',
+    title: 'Sales by SKU',
+    icon: 'pricetag-outline',
+    slicesOf: (sales?: MieSalesSummary) => sales?.bySku ?? [],
+  },
+  {
+    key: 'brick',
+    title: 'Sales by Brick',
+    icon: 'map-outline',
+    slicesOf: (sales?: MieSalesSummary) => sales?.byBrick ?? [],
+  },
+] as const satisfies readonly {
+  key: string;
+  title: string;
+  icon: keyof typeof Ionicons.glyphMap;
+  slicesOf: (sales?: MieSalesSummary) => SalesSlice[];
+}[];
+
+type SalesBreakdownKey = (typeof SALES_BREAKDOWNS)[number]['key'];
+type SalesMeasureState = Record<SalesBreakdownKey, SalesMeasure>;
+
+/**
+ * Units as the bars write them. Unlike money these stay readable unabbreviated
+ * well into five figures, so a real count is shown for as long as it fits and
+ * only then abbreviated.
+ *
+ * Rounded because the figure is share-weighted (a brick worked by three MIEs
+ * gives this rep a fraction of its packs) — "2,412.33 packs" is precision the
+ * underlying split doesn't actually have.
+ */
+function formatUnits(value: number): string {
+  const units = Math.round(Number(value) || 0);
+  const sign = units < 0 ? '-' : '';
+  const size = Math.abs(units);
+
+  if (size >= 1_000_000) return `${sign}${(size / 1_000_000).toFixed(2)}M`;
+  if (size >= 100_000) return `${sign}${Math.round(size / 1_000)}K`;
+  return `${sign}${size.toLocaleString('en-US')}`;
+}
+
+/** The selected measure's figure and how it is written. */
+function measureOf(slice: SalesSlice, measure: SalesMeasure) {
+  return measure === 'units'
+    ? Number(slice.soldQty) || 0
+    : Number(slice.amount) || 0;
+}
+
+function formatMeasure(value: number, measure: SalesMeasure) {
+  return measure === 'units' ? formatUnits(value) : formatAmount(value);
+}
+
+/**
+ * A sales breakdown as the column chart wants it — the selected figure above
+ * each bar.
  *
  * EVERY category is returned, not a top-N slice: a rep with 29 bricks selling
  * needs to see all 29, and truncating silently made the chart disagree with the
@@ -90,14 +181,23 @@ const PERFORMANCE_VIEWS: SegmentedOption<PerformanceView>[] = [
  *
  * Categories with no sales are dropped — they would be zero-height bars taking
  * up width, and nothing is lost by omitting them.
+ *
+ * Re-sorted on the selected measure. The backend ranks every breakdown by value,
+ * which is the wrong order for a units chart: the biggest earner is not always
+ * the biggest seller, and bars that don't descend read as a broken chart.
  */
-function toSalesColumns(slices: SalesSlice[]): ColumnChartPoint[] {
+function toSalesColumns(
+  slices: SalesSlice[],
+  measure: SalesMeasure,
+): ColumnChartPoint[] {
   return slices
-    .filter((slice) => Number(slice.amount) > 0)
-    .map((slice) => ({
+    .map((slice) => ({ slice, figure: measureOf(slice, measure) }))
+    .filter((entry) => entry.figure > 0)
+    .sort((left, right) => right.figure - left.figure)
+    .map(({ slice, figure }) => ({
       label: slice.name,
-      value: Number(slice.amount) || 0,
-      topLabel: formatAmount(Number(slice.amount) || 0),
+      value: figure,
+      topLabel: formatMeasure(figure, measure),
     }));
 }
 
@@ -184,6 +284,18 @@ export default function AnalyticsScreen() {
   const [view, setView] = useState<PerformanceView>('call');
   const isSales = view === 'sales';
   /**
+   * Value or units, held PER CHART — brand, SKU and brick each keep their own.
+   * A rep reading SKUs in packs while judging brands on money is a normal thing
+   * to want, so the three cards don't move together.
+   */
+  const [salesMeasures, setSalesMeasures] = useState<SalesMeasureState>(() =>
+    Object.fromEntries(
+      SALES_BREAKDOWNS.map((breakdown) => [breakdown.key, 'value']),
+    ) as SalesMeasureState,
+  );
+  const setSalesMeasure = (key: SalesBreakdownKey) => (next: SalesMeasure) =>
+    setSalesMeasures((current) => ({ ...current, [key]: next }));
+  /**
    * The selected period as the API wants it. Memoised on the primitives rather
    * than on `period`, so a re-render with the same days doesn't produce a new
    * object and refetch every query keyed on it.
@@ -195,18 +307,19 @@ export default function AnalyticsScreen() {
   // Same figures the metric grid renders, so the PDF matches the screen.
   const metrics = useSummaryMetrics(callPeriod);
   // Calls completed in the period, against the same length of time before it.
-  const { data: monthlyCompleted } = useMonthlyCallTotals(user?.mieId, callPeriod);
+  const monthlyTotalsQuery = useMonthlyCallTotals(user?.mieId, callPeriod);
+  const monthlyCompleted = monthlyTotalsQuery.data;
 
   /**
-   * RFI — the share of DOCTORS whose month is finished.
+   * REACH — the share of DOCTORS whose month is finished.
    *
    * Counted per doctor against their own class quota: an A4 counts once all
    * four of their calls are made, an A2 once both are. Three of four is not
-   * RFI, and neither is one of two.
+   * reached, and neither is one of two.
    *
-   * It used to read completed ÷ planned CALLS, which is a different measure
-   * wearing the same name — and one that moves for any call at all, so eight
-   * calls on one doctor scored the same as finishing two doctors properly.
+   * Not to be confused with RFI, which is now the Call / Planned pill — calls
+   * made against calls owed. The two move independently: eight calls on one
+   * doctor lifts RFI and reaches nobody new.
    *
    * Read from the cached doctor book rather than the totals endpoint: that is
    * where the per-doctor quota lives, its visitCount already folds in calls
@@ -218,7 +331,7 @@ export default function AnalyticsScreen() {
     teamId: user?.teamId,
   });
 
-  const { rfiDone, rfiTotal, rfiPercent } = useMemo(() => {
+  const { reachDone, reachTotal, reachPercent } = useMemo(() => {
     const doctors = mapDoctorRows(
       doctorsQuery.data?.pages.flatMap((page) => page.data) ?? [],
     );
@@ -229,15 +342,16 @@ export default function AnalyticsScreen() {
       (doctor) => (doctor.visitCount ?? 0) >= (doctor.maxVisits ?? 0),
     ).length;
     return {
-      rfiDone: done,
-      rfiTotal: withQuota.length,
-      rfiPercent: withQuota.length
+      reachDone: done,
+      reachTotal: withQuota.length,
+      reachPercent: withQuota.length
         ? Math.round((done / withQuota.length) * 100)
         : null,
     };
   }, [doctorsQuery.data]);
   // Average detailing time per call in the period, by specialty and by brand.
-  const { data: engagement } = useEngagement(user?.mieId, callPeriod);
+  const engagementQuery = useEngagement(user?.mieId, callPeriod);
+  const engagement = engagementQuery.data;
   /**
    * Brick-wise sales for the same period, fetched as soon as the screen opens
    * rather than when the Sales tab is first tapped.
@@ -265,38 +379,57 @@ export default function AnalyticsScreen() {
   const isSalesLoading = isSales && salesQuery.isPending;
 
   /**
-   * The three breakdown cards, in the order the Sales view shows them.
+   * The same treatment for the call figures.
    *
-   * Brand is always rendered even though the sales query carries no brand column
-   * yet — it shows its empty state rather than disappearing, so the layout stays
-   * put and the gap is visible. It fills in on its own if `d.brands` is added to
-   * the query server-side.
+   * Changing the month or the day range makes a NEW query key, so every call
+   * figure is refetched from scratch. Until it lands the hooks hold no data and
+   * the cards fell back to their zeroes — "0 / 360", "No calls recorded in this
+   * period" — which is the answer for an empty period, not a loading one. A rep
+   * narrowing to 1–2 had no way to tell "still fetching" from "nothing here".
+   *
+   * Gated on `mieId` because a disabled query reports `pending` forever in React
+   * Query v5; without it a signed-in-but-unresolved rep would sit on skeletons
+   * that never resolve. `isPending` (not `isFetching`) so a period already in
+   * cache keeps showing its figures while it refreshes in the background —
+   * blanking settled numbers on every revisit would be its own kind of lie.
+   */
+  const hasMie = Boolean(user?.mieId);
+  // Feeds the Calls Completed boxes AND the metric grid: both read
+  // /calls/monthly-totals, so they arrive together and should wait together.
+  const isCallTotalsLoading =
+    !isSales && hasMie && monthlyTotalsQuery.isPending;
+  // The two breakdown charts come from their own request, so they get their own
+  // flag rather than being held back by (or holding back) the totals.
+  const isEngagementLoading =
+    !isSales && hasMie && engagementQuery.isPending;
+
+  /**
+   * SALES_BREAKDOWNS resolved against the response, each card plotted in ITS OWN
+   * selected measure.
    */
   const salesBreakdowns = useMemo(
-    () => [
-      {
-        title: 'Sales by Brand',
-        icon: 'cube-outline' as const,
-        data: toSalesColumns(sales?.byBrand ?? []),
-      },
-      {
-        title: 'Sales by SKU',
-        icon: 'pricetag-outline' as const,
-        data: toSalesColumns(sales?.bySku ?? []),
-      },
-      {
-        title: 'Sales by Brick',
-        icon: 'map-outline' as const,
-        data: toSalesColumns(sales?.byBrick ?? []),
-      },
-    ],
-    [sales],
+    () =>
+      SALES_BREAKDOWNS.map((breakdown) => {
+        const measure = salesMeasures[breakdown.key];
+        return {
+          ...breakdown,
+          measure,
+          data: toSalesColumns(breakdown.slicesOf(sales), measure),
+          // Named where there is no toggle to read the measure off — the PDF.
+          exportTitle: `${breakdown.title}${measure === 'units' ? ' (Units)' : ''}`,
+        };
+      }),
+    [sales, salesMeasures],
   );
 
   /**
    * The rep's biggest customers this period. The endpoint already returns them
    * ranked by value across every customer they sold to (four figures of them),
    * so this is just the head of that list.
+   *
+   * Value only — no units switch here. The bar charts are read for mix ("which
+   * brand moves"), where packs and rupees each answer something; a customer
+   * ranking is read for who matters, and that is the money.
    */
   const topCustomers = useMemo(
     () => (sales?.byCustomer ?? []).filter((c) => c.amount > 0).slice(0, 10),
@@ -374,36 +507,26 @@ export default function AnalyticsScreen() {
   const brandColumns = toColumns(engagement?.byBrand ?? []);
 
   /**
-   * RFI as one more headline card, reading the SAME hooks the other cards do so
-   * it can never disagree with them: for calls it's completed ÷ planned calls,
-   * for sales the achievement percentage (falling back to sold ÷ target). A dash
-   * when there's no plan/target to be a percentage of.
+   * Reach as one more headline card on the CALL view: the share of doctors whose
+   * month is finished, reading the same hooks the cards beside it do so it can
+   * never disagree with them.
+   *
+   * The Sales view carries no equivalent. Its version was the achievement
+   * percentage — the number already shown, unchanged, in the "Achievement %"
+   * card two slots to its left. Two cards for one figure under different names
+   * only invited the reader to look for a difference between them.
    */
   const callMetrics = useMemo<SummaryMetric[]>(() => {
-    const rfi: SummaryMetric = {
-      label: 'RFI (Doctors Completed)',
-      value: rfiTotal === 0 ? '—' : `${rfiDone} / ${rfiTotal}`,
-      change: rfiPercent == null ? undefined : `${rfiPercent}%`,
+    const reach: SummaryMetric = {
+      label: 'Reach (Doctors Completed)',
+      value: reachTotal === 0 ? '—' : `${reachDone} / ${reachTotal}`,
+      change: reachPercent == null ? undefined : `${reachPercent}%`,
       tone: 'neutral',
     };
-    // RFI sits in the 3rd slot, so the two rate cards (RFI, Avg Engagement) line
-    // up after the two count cards (Call/Planned, Covered/Doctors).
-    return [...metrics.slice(0, 2), rfi, ...metrics.slice(2)];
-  }, [metrics, rfiDone, rfiTotal, rfiPercent]);
-
-  const salesMetricsWithRfi = useMemo<SummaryMetric[]>(() => {
-    const target = sales?.targetValue ?? 0;
-    const achieved = sales?.currentAmount ?? 0;
-    const percent =
-      sales?.achievementPct ??
-      (target > 0 ? Math.round((achieved / target) * 100) : null);
-    const rfi: SummaryMetric = {
-      label: 'RFI (Target / Achieved)',
-      value: percent == null ? '—' : `${percent}%`,
-      tone: 'neutral',
-    };
-    return [...salesMetrics.slice(0, 2), rfi, ...salesMetrics.slice(2)];
-  }, [salesMetrics, sales]);
+    // Reach sits in the 3rd slot, so the two rate cards (Reach, Avg Engagement)
+    // line up after the two count cards (Call/Planned, Covered/Doctors).
+    return [...metrics.slice(0, 2), reach, ...metrics.slice(2)];
+  }, [metrics, reachDone, reachTotal, reachPercent]);
 
   const handleExportPdf = async () => {
     if (isExporting) return;
@@ -444,7 +567,7 @@ export default function AnalyticsScreen() {
           },
           {
             viewLabel: 'Sales Performance',
-            metrics: salesMetricsWithRfi,
+            metrics: salesMetrics,
             monthly: {
               title: 'Total Sales',
               thisMonth: formatAmount(sales?.currentAmount ?? 0),
@@ -453,15 +576,25 @@ export default function AnalyticsScreen() {
             // Every card the Sales view shows, in the same order — the three
             // breakdowns and then Top 10 Customers, which is a chart on screen
             // but was left out of the export entirely.
+            //
+            // Exported in whichever measure the charts are currently showing, so
+            // the file matches the screen it was taken from. The title says which
+            // — on paper there is no toggle to read it off, and a column of pack
+            // counts under a bare "Sales by Brand" would be taken for rupees.
             breakdowns: [
               ...salesBreakdowns.map((breakdown) => ({
-                title: breakdown.title,
+                title: breakdown.exportTitle,
                 rows: toRows(breakdown.data),
               })),
               {
                 title: 'Top 10 Customers',
                 rows: topCustomers.map((customer) => ({
-                  name: customer.name,
+                  // SAP code alongside the name, as on screen — the export is
+                  // what gets matched back against the ERP, so the key that
+                  // makes that possible has to travel with it.
+                  name: customer.customerId
+                    ? `${customer.name} (${customer.customerId})`
+                    : customer.name,
                   value: customer.amount,
                   display: formatAmount(customer.amount),
                 })),
@@ -593,7 +726,7 @@ export default function AnalyticsScreen() {
             {/* Labelled with the span the figure actually covers — the period is
                 a day range, so "This Month" was only ever right by accident. */}
             <Text style={styles.rfiStatLabel}>{currentSpanLabel}</Text>
-            {isSalesLoading ? (
+            {isSalesLoading || isCallTotalsLoading ? (
               <AppSkeleton width={104} height={26} />
             ) : (
               <Text style={styles.rfiStatValue}>
@@ -606,7 +739,7 @@ export default function AnalyticsScreen() {
 
           <View style={styles.rfiStatBox}>
             <Text style={styles.rfiStatLabel}>{previousSpanLabel}</Text>
-            {isSalesLoading ? (
+            {isSalesLoading || isCallTotalsLoading ? (
               <AppSkeleton width={104} height={26} />
             ) : (
               <Text style={styles.rfiStatValue}>
@@ -637,17 +770,18 @@ export default function AnalyticsScreen() {
         </View>
       </View>
 
-      {isSalesLoading ? (
-        // Same 3-up shape the real cards take, so nothing jumps when they land.
+      {isSalesLoading || isCallTotalsLoading ? (
+        // Same shape the real cards take, so nothing jumps when they land — and
+        // the same COUNT: Sales shows three cards where Call shows four.
         <View style={styles.metricSkeletonRow}>
-          {[0, 1, 2, 3].map((index) => (
+          {(isSales ? [0, 1, 2] : [0, 1, 2, 3]).map((index) => (
             <View key={index} style={styles.metricSkeletonCell}>
               <AppSkeletonStat labelWidth={index === 2 ? 110 : 70} />
             </View>
           ))}
         </View>
       ) : (
-        <SummaryMetricsGrid metrics={isSales ? salesMetricsWithRfi : callMetrics} />
+        <SummaryMetricsGrid metrics={isSales ? salesMetrics : callMetrics} />
       )}
 
       <View style={styles.chartsGrid}>
@@ -672,6 +806,14 @@ export default function AnalyticsScreen() {
                 title={breakdown.title}
                 icon={
                   <Ionicons name={breakdown.icon} size={20} color={Colors.primary} />
+                }
+                headerAction={
+                  <AppSegmentedToggle
+                    options={SALES_MEASURES}
+                    value={breakdown.measure}
+                    onChange={setSalesMeasure(breakdown.key)}
+                    variant="box"
+                  />
                 }
                 chartWrapperStyle={styles.barChartWrapper}
                 style={styles.chartCard}
@@ -703,8 +845,10 @@ export default function AnalyticsScreen() {
                   {[0, 1, 2, 3, 4].map((index) => (
                     <View key={index} style={styles.customerRow}>
                       <AppSkeleton width={24} height={24} radius={12} />
+                      {/* Name plus its SAP pill, laid out as the real row is. */}
                       <View style={styles.customerNameCell}>
                         <AppSkeleton height={13} />
+                        <AppSkeleton width={54} height={16} radius={999} />
                       </View>
                       <AppSkeleton width={62} height={13} />
                     </View>
@@ -721,6 +865,18 @@ export default function AnalyticsScreen() {
                         <Text style={styles.customerName} numberOfLines={1}>
                           {customer.name}
                         </Text>
+                        {/* The customer's SAP code (brick_mapping.ibl_cust_id —
+                            the customer_number the invoice feed is keyed on),
+                            in a pill beside the name. The pill never shrinks and
+                            the name gives up the width instead, so the code
+                            stays whole on the rows whose names truncate. */}
+                        {customer.customerId ? (
+                          <View style={styles.customerCodePill}>
+                            <Text style={styles.customerCodeText} numberOfLines={1}>
+                              {customer.customerId}
+                            </Text>
+                          </View>
+                        ) : null}
                       </View>
                       <Text style={styles.customerAmount}>
                         {formatAmount(customer.amount)}
@@ -745,7 +901,9 @@ export default function AnalyticsScreen() {
               chartWrapperStyle={styles.barChartWrapper}
               style={styles.chartCard}
             >
-              {specialtyColumns.length > 0 ? (
+              {isEngagementLoading ? (
+                <AppSkeletonChart bars={5} height={210} />
+              ) : specialtyColumns.length > 0 ? (
                 <AppColumnChart data={specialtyColumns} height={210} />
               ) : (
                 <Text style={styles.chartEmpty}>
@@ -760,7 +918,9 @@ export default function AnalyticsScreen() {
               chartWrapperStyle={styles.barChartWrapper}
               style={styles.chartCard}
             >
-              {brandColumns.length > 0 ? (
+              {isEngagementLoading ? (
+                <AppSkeletonChart bars={5} height={210} />
+              ) : brandColumns.length > 0 ? (
                 <AppColumnChart data={brandColumns} height={210} />
               ) : (
                 <Text style={styles.chartEmpty}>
@@ -988,14 +1148,37 @@ const styles = StyleSheet.create({
   },
   // Takes the slack so a long shop name truncates instead of shoving the
   // amount off the row.
+  // Holds the name and its SAP pill side by side.
   customerNameCell: {
     flex: 1,
     minWidth: 0,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   customerName: {
+    // The only thing on the row that gives up width: the rank badge, the SAP
+    // pill and the amount are all fixed, so a long shop name truncates rather
+    // than pushing any of them off.
+    flexShrink: 1,
     color: Colors.text,
     fontSize: 13,
     fontWeight: '700',
+  },
+  // A lookup key for matching back against SAP, not something the list is
+  // scanned by — so it's a quiet tinted pill rather than a second heading.
+  customerCodePill: {
+    flexShrink: 0,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 999,
+    backgroundColor: Colors.primaryLight,
+  },
+  customerCodeText: {
+    color: Colors.primary,
+    fontSize: 11,
+    fontWeight: '800',
+    letterSpacing: 0.3,
   },
   customerAmount: {
     color: Colors.primary,

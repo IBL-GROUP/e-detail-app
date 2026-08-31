@@ -35,6 +35,8 @@ export function SlideViewer({
 }: SlideViewerProps) {
   const [current, setCurrent] = useState(0);
   const [slideElapsed, setSlideElapsed] = useState(0);
+  /** True while the current slide is pinched in — see the carousel below. */
+  const [isZoomed, setIsZoomed] = useState(false);
   const [spentSeconds, setSpentSeconds] = useState<number[]>(() => slides.map(() => 0));
   const currentRef = useRef(0);
   const slideElapsedRef = useRef(0);
@@ -133,6 +135,10 @@ export function SlideViewer({
     const elapsed = slideElapsedRef.current;
 
     setSpentSeconds((seconds) => addSlideTime(seconds, previousIndex, elapsed));
+    // A new slide always starts whole. The outgoing SlideCard resets itself too,
+    // but this covers the jumps that don't go through a swipe — the arrows and
+    // the dots, which stay live while zoomed.
+    setIsZoomed(false);
     setCurrent(target);
     setSlideElapsed(0);
     currentRef.current = target;
@@ -153,7 +159,18 @@ export function SlideViewer({
         slideStyle={styles.slideWrapper}
         widthRatio={1}
         heightRatio={1}
-        renderItem={({ item }) => <SlideCard slide={item} />}
+        // Paging is suspended while the rep is pinched into a slide: a zoomed
+        // image and a paging carousel both want horizontal drags, and dragging
+        // around a magnified figure must not flick to the next slide in front of
+        // the doctor. It comes straight back when they zoom out.
+        enabled={!isZoomed}
+        renderItem={({ item, index }) => (
+          <SlideCard
+            slide={item}
+            isActive={index === current}
+            onZoomChange={setIsZoomed}
+          />
+        )}
       />
 
       <View style={styles.bottomOverlay}>

@@ -17,36 +17,36 @@ const NAV_CARDS: {
   href: Href;
 }[] = [
   {
-    label: 'Doctor List',
-    description: 'Every doctor assigned to you',
+    label: 'Assigned Doctors',
+    description: 'Every doctor assigned',
     iconName: 'people-outline',
     href: '/doctor-list',
   },
   {
     // The rep's whole product book from products/brands — every brand and SKU
     // they carry, not just what is currently being forced.
-    label: 'Brands & SKUs',
-    description: 'Every brand and SKU assigned to you',
+    label: 'Portfolio',
+    description: 'Every brand and SKU assigned',
     iconName: 'pricetags-outline',
     href: '/my-brands',
   },
   {
     // The slide decks themselves — read-only previews of the visuals a rep
-    // presents during a call. Named for the visuals, not the brands, so it
-    // doesn't read as a repeat of the Brands & SKUs card above.
-    label: 'Content',
+    // presents during a call. Named for the content, not the products, so it
+    // doesn't read as a repeat of the Portfolio card above.
+    label: 'Product Content for e-Detailing',
     description: 'Detailing slides you show in calls',
     iconName: 'albums-outline',
     href: '/content-library',
   },
   {
-    label: 'Call Reporting',
+    label: 'e-Detailing',
     description: "Report today's calls",
     iconName: 'calendar-outline',
     href: '/planned-calls',
   },
   {
-    label: 'Analytics',
+    label: 'View Sales & Call Performance',
     description: 'Your calls and coverage',
     iconName: 'bar-chart-outline',
     href: '/analytics',

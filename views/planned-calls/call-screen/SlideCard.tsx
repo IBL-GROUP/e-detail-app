@@ -1,4 +1,5 @@
 import { Colors } from '@/constants/theme';
+import { ZoomableImage } from '@/components/ui/ZoomableImage';
 import { Image as ExpoImage } from 'expo-image';
 import { ImageSourcePropType, Platform, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
@@ -19,6 +20,13 @@ export interface Slide {
 
 interface SlideCardProps {
   slide: Slide;
+  /**
+   * False once the carousel has paged past this slide — the zoom is dropped so
+   * coming back to it shows the whole slide again.
+   */
+  isActive?: boolean;
+  /** Raised while the rep has this slide pinched in; the viewer pauses paging. */
+  onZoomChange?: (isZoomed: boolean) => void;
 }
 
 const webHeroImageStyle = {
@@ -47,7 +55,7 @@ function getImageUri(source: ImageSourcePropType | undefined) {
   return null;
 }
 
-export function SlideCard({ slide }: SlideCardProps) {
+export function SlideCard({ slide, isActive = true, onZoomChange }: SlideCardProps) {
   const { width, height } = useWindowDimensions();
   const shouldShowHeroImage = Boolean(slide.image) && slide.bullets.length === 0;
   const isWeb = Platform.OS === 'web';
@@ -61,9 +69,18 @@ export function SlideCard({ slide }: SlideCardProps) {
       <View style={[styles.card, styles.heroCard]}>
         <View style={styles.heroImageFrame}>
           {isWeb && imageUri ? (
+            // The browser zooms the whole page, so the web build needs nothing
+            // of its own here.
             <img src={imageUri} alt={slide.title} style={webHeroImageStyle} />
           ) : (
-            <ExpoImage source={slide.image} style={styles.heroImage} contentFit="contain" />
+            // Tablet: pinch / double-tap into the slide's small print.
+            <ZoomableImage
+              source={slide.image as ImageSourcePropType}
+              style={styles.heroImage}
+              contentFit="contain"
+              isActive={isActive}
+              onZoomChange={onZoomChange}
+            />
           )}
         </View>
 

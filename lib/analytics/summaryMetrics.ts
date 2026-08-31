@@ -11,6 +11,8 @@ export interface SummaryMetric {
   value: string;
   /** The pill beside the value. Omitted when there is no real figure. */
   change?: string;
+  /** Names the pill where the card's own label doesn't — e.g. "RFI". */
+  pillCaption?: string;
   tone: "positive" | "negative" | "neutral";
 }
 
@@ -98,6 +100,10 @@ export function useSummaryMetrics(
         // is normal, so painting it red would cry wolf all month. No pill at all
         // when there is no target; there'd be nothing to be a percentage of.
         change: planned > 0 ? `${callPercent}%` : undefined,
+        // This percentage is the rep's RFI. Named on the pill because the card's
+        // own label says "Call / Planned", which describes the fraction to its
+        // left rather than the figure the business reports on.
+        pillCaption: "RFI",
         tone: callPercent >= 100 ? ("positive" as const) : ("neutral" as const),
       },
       {

@@ -78,7 +78,8 @@ interface LoginResponse {
   message?: string;
   /** Signed by the backend; sent as `Authorization: Bearer <token>` thereafter. */
   token: string;
-  /** Human-readable lifetime, e.g. '24h'. Informational only. */
+  /** Human-readable lifetime, e.g. '3d 4h (end of Sunday, Asia/Karachi)'.
+   *  Informational only — the real expiry is the token's own `exp` claim. */
   expiresIn?: string;
   user: {
     userId: number | string;
@@ -291,7 +292,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       }
 
       const storedToken = storedSession?.token ?? null;
-      // A server token older than its 24h life is dead — drop the session so the
+      // A token past its expiry (end of Sunday) is dead — drop the session so the
       // rep is asked to sign in rather than meeting a 401 on their first call.
       // An offline placeholder is exempt: it was never a server token, and the
       // rep may still be offline with a full day's cached data to work from.
@@ -394,8 +395,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await writeStoredSession(null);
   };
 
-  // The backend rejected our token (expired after 24h, or invalid). End the
-  // session so the rep is taken to the login screen.
+  // The backend rejected our token (expired at the weekly Sunday boundary, or
+  // invalid). End the session so the rep is taken to the login screen.
   //
   // The call outbox is deliberately NOT touched: queued calls stay on disk and
   // upload on the next flush once they sign back in. A 401 arrives as a thrown

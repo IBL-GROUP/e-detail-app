@@ -370,7 +370,7 @@ export default function PlannedCalls() {
       // Same non-scrolling shell as the other kinds: ScreenLayout's scrollable
       // mode adds its own 16px padding, which double-inset the pinned header and
       // the Call Type card here but nowhere else. The panel scrolls on its own.
-      <ScreenLayout title="Call Reporting" notificationCount={1} scrollable={false}>
+      <ScreenLayout title="e-Detailing" notificationCount={1} scrollable={false}>
         {stickyHeader}
 
         <CallKindSelector
@@ -391,7 +391,7 @@ export default function PlannedCalls() {
   }
 
   return (
-    <ScreenLayout title="Call Reporting" notificationCount={1} scrollable={false}>
+    <ScreenLayout title="e-Detailing" notificationCount={1} scrollable={false}>
       {stickyHeader}
 
       <CallKindSelector
@@ -529,9 +529,16 @@ const styles = StyleSheet.create({
     gap: 14,
   },
 
+  // flexGrow, NOT flex:1. `flex: 1` sets flexBasis to 0, so the title block
+  // contributes nothing to the wrap calculation — the row never wrapped, the
+  // block was squeezed to whatever the controls left, and `minWidth: 0` let it
+  // shrink below its own content until the count badge sat under the filters.
+  // With an auto basis and no shrink, the controls drop to their own line
+  // instead.
   stickyTitleBlock: {
-    flex: 1,
-    minWidth: 0,
+    flexGrow: 1,
+    flexShrink: 0,
+    flexBasis: 'auto',
     gap: 5,
   },
   stickyTitleRow: {

@@ -31,6 +31,7 @@ export function SummaryMetricsGrid({ metrics, style }: SummaryMetricsGridProps) 
             label={metric.label}
             value={metric.value}
             pill={metric.change}
+            pillCaption={metric.pillCaption}
             tone={metric.tone}
             style={styles.cardFill}
           />
