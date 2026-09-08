@@ -9,20 +9,27 @@ import {
   Platform,
   Pressable,
   ScrollView,
+  StatusBar,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function LoginScreen() {
   const { isAuthenticated, isHydrated, login, isSyncingOfflineUsers } = useAuth();
+  const insets = useSafeAreaInsets();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [loginError, setLoginError] = useState('');
+  // Which field the caret is in — only the active field takes the brand edge,
+  // so the form shows where typing lands without any decoration elsewhere.
+  const [focusedField, setFocusedField] = useState<'username' | 'password' | null>(
+    null,
+  );
 
   // Sign In is disabled while the on-open offline login sync runs (or while
   // submitting), so the offline account list is ready before the first sign-in.
@@ -31,7 +38,7 @@ export default function LoginScreen() {
   if (!isHydrated) {
     return (
       <SafeAreaView style={styles.loadingScreen}>
-        <ActivityIndicator size="large" color={Colors.textOnDark} />
+        <ActivityIndicator size="large" color={Colors.primary} />
       </SafeAreaView>
     );
   }
@@ -61,106 +68,162 @@ export default function LoginScreen() {
   };
 
   return (
-    <SafeAreaView style={styles.safeArea}>
+    <View style={styles.root}>
+      <StatusBar barStyle="dark-content" />
+
+      {/* Two very low-opacity brand washes in the corners. Enough for the page
+          to read as blue rather than plain grey, far short of a coloured panel
+          — at 6–7% they sit behind the card without competing with it. */}
+      <View style={styles.washTop} />
+      <View style={styles.washBottom} />
+
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <ScrollView
-          contentContainerStyle={styles.scrollContent}
+          contentContainerStyle={[
+            styles.scrollContent,
+            { paddingTop: insets.top + 32, paddingBottom: insets.bottom + 32 },
+          ]}
           keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
         >
-          <View style={styles.heroCard}>
-            <View style={styles.heroGlowOne} />
-            <View style={styles.heroGlowTwo} />
-            <Text style={styles.heroEyebrow}>Searle E-Detailing</Text>
-            <Text style={styles.heroTitle}>Plan smarter field visits from one secure place.</Text>
-            <Text style={styles.heroSubtitle}>
-              Sign in to access your team coverage, doctor planning, analytics, and call workflows.
-            </Text>
-          </View>
-
-          <View style={styles.formCard}>
-            <Text style={styles.formTitle}>Welcome back</Text>
-            <Text style={styles.formSubtitle}>Use your Medical Rep account to continue.</Text>
-
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>User ID</Text>
-              <View style={styles.inputShell}>
-                <Ionicons name="person-outline" size={18} color={Colors.textMuted} />
-                <TextInput
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  placeholder="Enter your ID"
-                  placeholderTextColor="#8B96A8"
-                  style={styles.input}
-                  value={username}
-                  onChangeText={setUsername}
-                />
+          {/*
+            One centred column on a plain background: wordmark, then the form.
+            No coloured panel behind it — a slab of navy only fills part of the
+            height, and whatever it doesn't cover reads as an empty half-screen.
+          */}
+          <View style={styles.column}>
+            <View style={styles.brand}>
+              {/* Tinted, not solid — gives the wordmark something to sit under
+                  in what was an empty band, without a block of colour. */}
+              <View style={styles.brandMark}>
+                <Ionicons name="pulse" size={24} color={Colors.primary} />
               </View>
-              {username.trim() && !username.includes('@') ? (
-                <Text style={styles.inputHint}>
-                  Signing in as {username.trim()}
-                  {LOGIN_EMAIL_DOMAIN}
-                </Text>
-              ) : null}
+
+              {/* <Text style={styles.heroEyebrow}>Searle E-Detailing</Text> */}
+              <Text style={styles.brandTitle}>OneForce</Text>
+              <Text style={styles.brandSubtitle}>Sign in to access.</Text>
             </View>
 
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Password</Text>
-              <View style={styles.inputShell}>
-                <Ionicons name="lock-closed-outline" size={18} color={Colors.textMuted} />
-                <TextInput
-                  autoCapitalize="none"
-                  autoCorrect={false}
-                  secureTextEntry={!showPassword}
-                  placeholder="Enter your password"
-                  placeholderTextColor="#8B96A8"
-                  style={styles.input}
-                  value={password}
-                  onChangeText={setPassword}
-                />
-                <Pressable onPress={() => setShowPassword((current) => !current)}>
+            <View style={styles.card}>
+              <Text style={styles.formTitle}>Welcome back</Text>
+              <Text style={styles.formSubtitle}>Use your Medical Rep account to continue.</Text>
+
+              <View style={styles.divider} />
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>User ID</Text>
+                <View
+                  style={[
+                    styles.inputShell,
+                    focusedField === 'username' && styles.inputShellFocused,
+                  ]}
+                >
                   <Ionicons
-                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
-                    size={20}
-                    color={Colors.textMuted}
+                    name="person-outline"
+                    size={18}
+                    color={
+                      focusedField === 'username' ? Colors.primary : Colors.textMuted
+                    }
                   />
-                </Pressable>
+                  <TextInput
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    placeholder="Enter your ID"
+                    placeholderTextColor="#9AA4B4"
+                    style={styles.input}
+                    value={username}
+                    onChangeText={setUsername}
+                    onFocus={() => setFocusedField('username')}
+                    onBlur={() => setFocusedField(null)}
+                  />
+                </View>
+                {username.trim() && !username.includes('@') ? (
+                  <Text style={styles.inputHint}>
+                    Signing in as {username.trim()}
+                    {LOGIN_EMAIL_DOMAIN}
+                  </Text>
+                ) : null}
               </View>
+
+              <View style={styles.inputGroup}>
+                <Text style={styles.inputLabel}>Password</Text>
+                <View
+                  style={[
+                    styles.inputShell,
+                    focusedField === 'password' && styles.inputShellFocused,
+                  ]}
+                >
+                  <Ionicons
+                    name="lock-closed-outline"
+                    size={18}
+                    color={
+                      focusedField === 'password' ? Colors.primary : Colors.textMuted
+                    }
+                  />
+                  <TextInput
+                    autoCapitalize="none"
+                    autoCorrect={false}
+                    secureTextEntry={!showPassword}
+                    placeholder="Enter your password"
+                    placeholderTextColor="#9AA4B4"
+                    style={styles.input}
+                    value={password}
+                    onChangeText={setPassword}
+                    onFocus={() => setFocusedField('password')}
+                    onBlur={() => setFocusedField(null)}
+                  />
+                  <Pressable
+                    onPress={() => setShowPassword((current) => !current)}
+                    hitSlop={10}
+                    style={({ pressed }) => [
+                      styles.eyeButton,
+                      pressed && styles.eyeButtonPressed,
+                    ]}
+                  >
+                    <Ionicons
+                      name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                      size={19}
+                      color={Colors.textMuted}
+                    />
+                  </Pressable>
+                </View>
+              </View>
+
+              {loginError ? (
+                <View style={styles.errorBox}>
+                  <Ionicons name="alert-circle-outline" size={18} color={Colors.danger} />
+                  <Text style={styles.errorText}>{loginError}</Text>
+                </View>
+              ) : null}
+
+              <Pressable
+                onPress={() => {
+                  void handleSubmit();
+                }}
+                style={({ pressed }) => [
+                  styles.submitButton,
+                  pressed && !signInDisabled ? styles.submitButtonPressed : null,
+                  signInDisabled ? styles.submitButtonDisabled : null,
+                ]}
+                disabled={signInDisabled}
+              >
+                {signInDisabled ? (
+                  <ActivityIndicator color={Colors.textOnDark} />
+                ) : (
+                  <>
+                    <Text style={styles.submitButtonText}>Sign In</Text>
+                    <Ionicons name="arrow-forward" size={17} color={Colors.textOnDark} />
+                  </>
+                )}
+              </Pressable>
             </View>
-
-            {loginError ? (
-              <View style={styles.errorBox}>
-                <Ionicons name="alert-circle-outline" size={18} color={Colors.danger} />
-                <Text style={styles.errorText}>{loginError}</Text>
-              </View>
-            ) : null}
-
-            <Pressable
-              onPress={() => {
-                void handleSubmit();
-              }}
-              style={({ pressed }) => [
-                styles.submitButton,
-                pressed && !signInDisabled ? styles.submitButtonPressed : null,
-                signInDisabled ? styles.submitButtonDisabled : null,
-              ]}
-              disabled={signInDisabled}
-            >
-              {signInDisabled ? (
-                <ActivityIndicator color={Colors.textOnDark} />
-              ) : (
-                <>
-                  <Text style={styles.submitButtonText}>Sign In</Text>
-                  <Ionicons name="arrow-forward" size={18} color={Colors.textOnDark} />
-                </>
-              )}
-            </Pressable>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -168,133 +231,174 @@ const styles = StyleSheet.create({
   flex: {
     flex: 1,
   },
-  safeArea: {
+  root: {
     flex: 1,
-    backgroundColor: '#EAF1FB',
+    // A hint of blue in the page itself rather than the neutral grey.
+    backgroundColor: '#EFF4FA',
+    overflow: 'hidden',
+  },
+  washTop: {
+    position: 'absolute',
+    width: 380,
+    height: 380,
+    borderRadius: 190,
+    backgroundColor: 'rgba(43, 115, 184, 0.07)',
+    top: -150,
+    right: -120,
+  },
+  washBottom: {
+    position: 'absolute',
+    width: 320,
+    height: 320,
+    borderRadius: 160,
+    backgroundColor: 'rgba(27, 44, 110, 0.05)',
+    bottom: -130,
+    left: -110,
   },
   loadingScreen: {
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.secondary,
+    backgroundColor: Colors.background,
   },
+  // flexGrow + centre: the block sits in the middle of whatever height the
+  // device gives it, and still scrolls when the keyboard takes the space.
   scrollContent: {
     flexGrow: 1,
-    padding: 20,
-    gap: 18,
     justifyContent: 'center',
+    paddingHorizontal: 20,
   },
-  heroCard: {
-    overflow: 'hidden',
-    borderRadius: 28,
-    padding: 24,
-    backgroundColor: Colors.secondary,
-    minHeight: 220,
+  column: {
+    width: '100%',
+    // Wide enough to give the fields room, still capped so it never stretches
+    // across a tablet or a browser window.
+    maxWidth: 480,
+    alignSelf: 'center',
+  },
+  brand: {
+    alignItems: 'center',
+    marginBottom: 22,
+  },
+  brandMark: {
+    width: 54,
+    height: 54,
+    borderRadius: 15,
+    alignItems: 'center',
     justifyContent: 'center',
+    backgroundColor: '#E3EDF9',
+    borderWidth: 1,
+    borderColor: '#CEDFF1',
+    marginBottom: 16,
   },
-  heroGlowOne: {
-    position: 'absolute',
-    width: 240,
-    height: 240,
-    borderRadius: 120,
-    backgroundColor: 'rgba(89, 167, 255, 0.30)',
-    top: -80,
-    right: -60,
+  brandTitle: {
+    color: Colors.secondary,
+    fontSize: 30,
+    lineHeight: 36,
+    fontWeight: '800',
+    letterSpacing: -0.4,
+    textAlign: 'center',
   },
-  heroGlowTwo: {
-    position: 'absolute',
-    width: 180,
-    height: 180,
-    borderRadius: 90,
-    backgroundColor: 'rgba(255, 255, 255, 0.10)',
-    bottom: -70,
-    left: -30,
+  brandSubtitle: {
+    color: Colors.textMuted,
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 6,
+    textAlign: 'center',
   },
   heroEyebrow: {
-    color: 'rgba(255,255,255,0.72)',
+    color: Colors.textMuted,
     fontSize: 12,
     fontWeight: '800',
     textTransform: 'uppercase',
     letterSpacing: 1.2,
     marginBottom: 10,
   },
-  heroTitle: {
-    color: Colors.textOnDark,
-    fontSize: 30,
-    lineHeight: 38,
-    fontWeight: '900',
-    maxWidth: 440,
-  },
-  heroSubtitle: {
-    color: 'rgba(255,255,255,0.78)',
-    fontSize: 15,
-    lineHeight: 22,
-    marginTop: 14,
-    maxWidth: 480,
-  },
-  formCard: {
-    borderRadius: 26,
+  card: {
+    borderRadius: 14,
     backgroundColor: Colors.surface,
-    padding: 22,
+    padding: 26,
     gap: 16,
+    borderWidth: 1,
+    borderColor: '#DCE5F0',
+    // Soft and wide rather than dark and tight: the card should look set on the
+    // page, not floating above it.
     shadowColor: '#0F172A',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.08,
-    shadowRadius: 18,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 12,
+    elevation: 2,
   },
   formTitle: {
     color: Colors.text,
-    fontSize: 26,
-    fontWeight: '900',
+    fontSize: 19,
+    fontWeight: '700',
+    letterSpacing: -0.2,
   },
   formSubtitle: {
     color: Colors.textMuted,
-    fontSize: 14,
-    lineHeight: 20,
-    marginTop: -8,
+    fontSize: 13.5,
+    lineHeight: 19,
+    marginTop: -12,
+  },
+  // Separates the greeting from the fields, so the card reads as two parts
+  // instead of one undifferentiated stack.
+  divider: {
+    height: 1,
+    backgroundColor: Colors.border,
+    marginVertical: -2,
   },
   inputGroup: {
-    gap: 8,
+    gap: 7,
   },
   inputLabel: {
     color: Colors.text,
-    fontSize: 14,
-    fontWeight: '800',
+    fontSize: 13,
+    fontWeight: '700',
   },
   inputShell: {
-    minHeight: 56,
-    borderRadius: 16,
+    minHeight: 48,
+    borderRadius: 10,
     borderWidth: 1,
-    borderColor: '#D8E2F0',
-    backgroundColor: '#F8FAFD',
-    paddingHorizontal: 14,
+    borderColor: '#DDE3EC',
+    backgroundColor: Colors.surface,
+    paddingHorizontal: 12,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+  },
+  // Just the edge and the icon change colour — no glow, no fill swap.
+  inputShellFocused: {
+    borderColor: Colors.primary,
   },
   input: {
     flex: 1,
     color: Colors.text,
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: '500',
+  },
+  eyeButton: {
+    padding: 4,
+    borderRadius: 6,
+  },
+  eyeButtonPressed: {
+    backgroundColor: '#EEF2F7',
   },
   inputHint: {
-    marginTop: 6,
     fontSize: 12,
+    lineHeight: 16,
     color: Colors.textMuted,
-    fontWeight: '600',
+    fontWeight: '500',
   },
   errorBox: {
-    borderRadius: 14,
+    borderRadius: 10,
     borderWidth: 1,
     borderColor: '#F5B9B9',
     backgroundColor: Colors.dangerBg,
-    paddingHorizontal: 14,
-    paddingVertical: 12,
+    paddingHorizontal: 12,
+    paddingVertical: 11,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 10,
+    gap: 9,
   },
   errorText: {
     flex: 1,
@@ -304,23 +408,25 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   submitButton: {
-    minHeight: 54,
-    borderRadius: 16,
+    minHeight: 50,
+    borderRadius: 10,
     backgroundColor: Colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
     flexDirection: 'row',
     gap: 8,
+    marginTop: 4,
   },
   submitButtonPressed: {
-    opacity: 0.88,
+    opacity: 0.9,
   },
   submitButtonDisabled: {
-    opacity: 0.72,
+    opacity: 0.6,
   },
   submitButtonText: {
     color: Colors.textOnDark,
-    fontSize: 16,
-    fontWeight: '800',
+    fontSize: 15,
+    fontWeight: '700',
+    letterSpacing: 0.2,
   },
 });

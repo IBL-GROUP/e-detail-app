@@ -5,6 +5,7 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Tag } from '@/components/tag';
 import { initialsOf } from '@/lib/initials';
 import { CallType, type CallKind } from './callTypes';
+import { VisitProgress } from './VisitProgress';
 
 export interface Doctor {
   id: string;
@@ -58,17 +59,7 @@ export function DoctorCard({
 
   const maxVisits = doctor.maxVisits ?? 0;
   const hasQuota = maxVisits > 0 && Boolean(doctor.doctorClass);
-  const remaining = Math.max(maxVisits - (doctor.visitCount ?? 0), 0);
-  const isCovered = maxVisits > 0 && remaining === 0;
-
-  // The headline status: what's still owed this month, or that it's all done.
-  // An unclassified doctor has no quota, so no pill.
-  const quotaLabel =
-    maxVisits === 0
-      ? null
-      : isCovered
-        ? 'Completed'
-        : `${remaining} visit${remaining === 1 ? '' : 's'} remaining`;
+  const done = Math.min(Math.max(doctor.visitCount ?? 0, 0), maxVisits);
 
   const handlePress = () => {
     const handled = onPress?.(doctor);
@@ -136,19 +127,14 @@ export function DoctorCard({
       </View>
 
       <View style={styles.info}>
-        {/* Name, with how much of the month's quota is left beside it. */}
+        {/* Name, with the month's visit circles opposite it — the same dots the
+            Doctor List card shows, so the two screens read identically. */}
         <View style={styles.titleRow}>
           <Text style={styles.name} numberOfLines={1}>
             {doctor.name}
           </Text>
 
-          {quotaLabel ? (
-            <Tag
-              label={quotaLabel}
-              icon={isCovered ? 'checkmark-circle-outline' : 'alert-circle-outline'}
-              tone={isCovered ? 'success' : 'warning'}
-            />
-          ) : null}
+          <VisitProgress visitCount={done} maxVisits={maxVisits} showCount={false} />
         </View>
 
         <View style={styles.tagRow}>

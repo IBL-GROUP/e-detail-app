@@ -154,8 +154,11 @@ function formatUnits(value: number): string {
   const sign = units < 0 ? '-' : '';
   const size = Math.abs(units);
 
-  if (size >= 1_000_000) return `${sign}${(size / 1_000_000).toFixed(2)}M`;
-  if (size >= 100_000) return `${sign}${Math.round(size / 1_000)}K`;
+  // Thousands, never millions — the same rule the money formatter follows, so
+  // flipping the Value/Units switch doesn't also change the unit of scale.
+  if (size >= 100_000) {
+    return `${sign}${Math.round(size / 1_000).toLocaleString('en-US')}K`;
+  }
   return `${sign}${size.toLocaleString('en-US')}`;
 }
 
@@ -536,7 +539,7 @@ export default function AnalyticsScreen() {
        * BOTH reports, always — not whichever tab happens to be open.
        *
        * A rep sending their month in should send the whole of it, and a
-       * document titled "Analytics & Reports" that silently held only half
+       * document titled "Analytics" that silently held only half
        * depending on where they last tapped was a trap: nothing in the file
        * said the other half was missing.
        *
@@ -574,7 +577,7 @@ export default function AnalyticsScreen() {
               previousMonth: formatAmount(sales?.previousAmount ?? 0),
             },
             // Every card the Sales view shows, in the same order — the three
-            // breakdowns and then Top 10 Customers, which is a chart on screen
+            // breakdowns and then Top 10 Chemists, which is a chart on screen
             // but was left out of the export entirely.
             //
             // Exported in whichever measure the charts are currently showing, so
@@ -587,7 +590,7 @@ export default function AnalyticsScreen() {
                 rows: toRows(breakdown.data),
               })),
               {
-                title: 'Top 10 Customers',
+                title: 'Top 10 Chemists',
                 rows: topCustomers.map((customer) => ({
                   // SAP code alongside the name, as on screen — the export is
                   // what gets matched back against the ERP, so the key that
@@ -614,8 +617,8 @@ export default function AnalyticsScreen() {
 
   return (
     <ScreenLayout
-      title="Analytics & Reports"
-      subtitle="Deep dive into your field performance metrics"
+      title="Analytics"
+      subtitle="View Sales & Call Performance"
       contentStyle={styles.content}
     >
       <View
@@ -834,7 +837,7 @@ export default function AnalyticsScreen() {
                 four figures, so bars would be meaningless — the useful question
                 is who the biggest few are, by name. */}
             <AppChartCard
-              title="Top 10 Customers"
+              title="Top 10 Chemists"
               icon={
                 <Ionicons name="storefront-outline" size={20} color={Colors.primary} />
               }
@@ -894,7 +897,7 @@ export default function AnalyticsScreen() {
         ) : (
           <>
             <AppChartCard
-              title="Average Engagement Time by Specialty"
+              title="Avg. Engagement by Specialty"
               icon={
                 <Ionicons name="people-outline" size={20} color={Colors.primary} />
               }
@@ -913,7 +916,7 @@ export default function AnalyticsScreen() {
             </AppChartCard>
 
             <AppChartCard
-              title="Average Engagement Time by Brand"
+              title="Avg. Engagement by Brand"
               icon={<Ionicons name="cube-outline" size={20} color={Colors.primary} />}
               chartWrapperStyle={styles.barChartWrapper}
               style={styles.chartCard}

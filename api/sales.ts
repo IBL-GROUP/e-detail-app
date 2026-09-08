@@ -128,15 +128,24 @@ export const useMieSales = (mieId?: string, period?: CallPeriod) =>
   });
 
 /**
- * Money as the screen writes it: 1.24M, 386K, 940. Sales run to eight figures,
- * which will not fit in a stat box unabbreviated.
+ * Money as the screen writes it: 6,082K, 386K, 940.
+ *
+ * THOUSANDS ONLY — millions are deliberately not used. A month that reads
+ * "6.08M" beside a target of "4.71M" makes two figures a rep is meant to
+ * compare differ in the third significant digit, and the eye has to unpack the
+ * decimal to see the gap. In thousands they line up as 6,082K against 4,710K
+ * and the difference is readable at a glance.
+ *
+ * Grouped with a comma so the larger figures stay legible once they run past
+ * four digits of thousands.
  */
 export function formatAmount(value: number): string {
   const amount = Number(value) || 0;
   const sign = amount < 0 ? '-' : '';
   const size = Math.abs(amount);
 
-  if (size >= 1_000_000) return `${sign}${(size / 1_000_000).toFixed(2)}M`;
-  if (size >= 1_000) return `${sign}${Math.round(size / 1_000)}K`;
+  if (size >= 1_000) {
+    return `${sign}${Math.round(size / 1_000).toLocaleString('en-US')}K`;
+  }
   return `${sign}${Math.round(size)}`;
 }

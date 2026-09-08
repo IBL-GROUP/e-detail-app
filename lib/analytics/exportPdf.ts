@@ -1,12 +1,12 @@
-import { jsPDF } from 'jspdf';
-import { Platform } from 'react-native';
+import { jsPDF } from "jspdf";
+import { Platform } from "react-native";
 
 export interface AnalyticsMetric {
   label: string;
   value: string;
   /** The figure printed under the value. Omitted when there is none. */
   change?: string;
-  tone: 'positive' | 'negative' | 'neutral';
+  tone: "positive" | "negative" | "neutral";
 }
 
 /** One bar of a breakdown. `value` sizes the bar; `display` is what's printed. */
@@ -60,7 +60,7 @@ function tracked(
   text: string,
   x: number,
   y: number,
-  options?: { align?: 'left' | 'right' | 'center'; space?: number },
+  options?: { align?: "left" | "right" | "center"; space?: number },
 ) {
   doc.setCharSpace(options?.space ?? 0.6);
   doc.text(text, x, y, options?.align ? { align: options.align } : undefined);
@@ -87,9 +87,9 @@ function wrapTracked(
   space: number,
   maxLines: number,
 ) {
-  const words = text.split(' ');
+  const words = text.split(" ");
   const lines: string[] = [];
-  let line = '';
+  let line = "";
 
   for (const word of words) {
     const candidate = line ? `${line} ${word}` : word;
@@ -116,7 +116,7 @@ function wrapTracked(
 }
 
 function buildDoc(data: AnalyticsReportData) {
-  const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+  const doc = new jsPDF({ unit: "mm", format: "a4" });
   const pageWidth = doc.internal.pageSize.getWidth();
   const pageHeight = doc.internal.pageSize.getHeight();
   const margin = 18;
@@ -131,33 +131,36 @@ function buildDoc(data: AnalyticsReportData) {
   const drawHeader = (viewLabel: string) => {
     // Thin accent rule across the very top.
     doc.setFillColor(...NAVY);
-    doc.rect(0, 0, pageWidth, 1.4, 'F');
+    doc.rect(0, 0, pageWidth, 1.4, "F");
 
     const y = 24;
-    doc.setFont('helvetica', 'bold');
+    doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
     doc.setTextColor(...NAVY);
-    tracked(doc, 'SEARLE · E-DETAILING', margin, y - 8, { space: 1 });
+    tracked(doc, "SEARLE · E-DETAILING", margin, y - 8, { space: 1 });
 
-    doc.setFont('helvetica', 'bold');
+    doc.setFont("helvetica", "bold");
     doc.setFontSize(22);
     doc.setTextColor(...INK);
-    doc.text('Analytics & Reports', margin, y);
+    doc.text("Analytics", margin, y);
 
-    doc.setFont('helvetica', 'normal');
+    doc.setFont("helvetica", "normal");
     doc.setFontSize(10.5);
     doc.setTextColor(...MUTED);
     doc.text(viewLabel, margin, y + 7);
 
     // Right-aligned period block.
-    doc.setFont('helvetica', 'bold');
+    doc.setFont("helvetica", "bold");
     doc.setFontSize(7.5);
     doc.setTextColor(...FAINT);
-    tracked(doc, 'REPORTING PERIOD', right, y - 8, { align: 'right', space: 0.8 });
-    doc.setFont('helvetica', 'bold');
+    tracked(doc, "REPORTING PERIOD", right, y - 8, {
+      align: "right",
+      space: 0.8,
+    });
+    doc.setFont("helvetica", "bold");
     doc.setFontSize(11);
     doc.setTextColor(...INK);
-    doc.text(data.dateLabel, right, y, { align: 'right' });
+    doc.text(data.dateLabel, right, y, { align: "right" });
 
     doc.setDrawColor(...INK);
     doc.setLineWidth(0.5);
@@ -172,9 +175,9 @@ function buildDoc(data: AnalyticsReportData) {
    */
   const heading = (label: string, top: number) => {
     doc.setFillColor(...NAVY);
-    doc.roundedRect(margin, top - 3.4, 1.6, 4.2, 0.8, 0.8, 'F');
+    doc.roundedRect(margin, top - 3.4, 1.6, 4.2, 0.8, 0.8, "F");
 
-    doc.setFont('helvetica', 'bold');
+    doc.setFont("helvetica", "bold");
     doc.setFontSize(8.5);
     doc.setTextColor(...NAVY);
     const x = margin + 4.5;
@@ -187,7 +190,7 @@ function buildDoc(data: AnalyticsReportData) {
   };
 
   let y = 0;
-  let currentLabel = '';
+  let currentLabel = "";
 
   /** Starts a fresh page. Footers are stamped in one pass at the end. */
   const breakPage = () => {
@@ -204,14 +207,18 @@ function buildDoc(data: AnalyticsReportData) {
   const nameLineH = 3.6;
 
   /** One titled run of bars. */
-  const breakdown = (title: string, rows: BreakdownRow[], emptyText: string) => {
+  const breakdown = (
+    title: string,
+    rows: BreakdownRow[],
+    emptyText: string,
+  ) => {
     // A heading with no room for even one row under it belongs on the next page.
     if (y + 23 > bodyBottom) breakPage();
     heading(title, y);
     y += 11;
 
     if (rows.length === 0) {
-      doc.setFont('helvetica', 'normal');
+      doc.setFont("helvetica", "normal");
       doc.setFontSize(9);
       doc.setTextColor(...MUTED);
       doc.text(emptyText, margin, y + 2);
@@ -225,7 +232,7 @@ function buildDoc(data: AnalyticsReportData) {
       // Measured with the row font, and re-set AFTER any page break: a break
       // redraws the letterhead, whose last call leaves the font bold — which is
       // why the first row of every continuation page came out bold.
-      doc.setFont('helvetica', 'normal');
+      doc.setFont("helvetica", "normal");
       doc.setFontSize(9);
       const nameLines: string[] = doc.splitTextToSize(item.name, labelW - 4);
       const rowH = Math.max(11, nameLines.length * nameLineH + 6);
@@ -241,10 +248,10 @@ function buildDoc(data: AnalyticsReportData) {
       // Alternating band, so the eye tracks from a name across to its figure.
       if (index % 2 === 1) {
         doc.setFillColor(...BAND);
-        doc.rect(margin - 2, y - 1.5, contentWidth + 4, rowH, 'F');
+        doc.rect(margin - 2, y - 1.5, contentWidth + 4, rowH, "F");
       }
 
-      doc.setFont('helvetica', 'normal');
+      doc.setFont("helvetica", "normal");
       doc.setFontSize(9);
       doc.setTextColor(...INK);
       nameLines.forEach((line, lineIndex) => {
@@ -255,15 +262,15 @@ function buildDoc(data: AnalyticsReportData) {
       // as one row rather than as a bar floating between two.
       const barY = y + 0.6;
       doc.setFillColor(...TRACK);
-      doc.roundedRect(barX, barY, barMaxW, barH, 1.5, 1.5, 'F');
+      doc.roundedRect(barX, barY, barMaxW, barH, 1.5, 1.5, "F");
       const w = Math.max(2, (barMaxW * item.value) / maxValue);
       doc.setFillColor(...NAVY);
-      doc.roundedRect(barX, barY, w, barH, 1.5, 1.5, 'F');
+      doc.roundedRect(barX, barY, w, barH, 1.5, 1.5, "F");
 
-      doc.setFont('helvetica', 'bold');
+      doc.setFont("helvetica", "bold");
       doc.setFontSize(9);
       doc.setTextColor(...INK);
-      doc.text(item.display, right, barY + barH - 0.6, { align: 'right' });
+      doc.text(item.display, right, barY + barH - 0.6, { align: "right" });
 
       y += rowH;
     });
@@ -276,7 +283,7 @@ function buildDoc(data: AnalyticsReportData) {
     // ---- Key metrics ----
     if (section.metrics.length > 0) {
       if (y + 42 > bodyBottom) breakPage();
-      heading('Key Metrics', y);
+      heading("Key Metrics", y);
       y += 9;
 
       const count = section.metrics.length;
@@ -295,12 +302,12 @@ function buildDoc(data: AnalyticsReportData) {
         doc.setFillColor(...CARD);
         doc.setDrawColor(...HAIRLINE);
         doc.setLineWidth(0.3);
-        doc.roundedRect(x, y, boxW, boxH, 2, 2, 'FD');
+        doc.roundedRect(x, y, boxW, boxH, 2, 2, "FD");
         doc.setFillColor(...NAVY);
-        doc.rect(x + 2, y, boxW - 4, 0.8, 'F');
+        doc.rect(x + 2, y, boxW - 4, 0.8, "F");
 
         // label — wrapped to the card, never past it
-        doc.setFont('helvetica', 'bold');
+        doc.setFont("helvetica", "bold");
         doc.setFontSize(6.5);
         doc.setTextColor(...MUTED);
         const labelLines = wrapTracked(
@@ -311,11 +318,13 @@ function buildDoc(data: AnalyticsReportData) {
           2,
         );
         labelLines.forEach((line, lineIndex) => {
-          tracked(doc, line, x + 5, y + 8 + lineIndex * 3.2, { space: labelSpace });
+          tracked(doc, line, x + 5, y + 8 + lineIndex * 3.2, {
+            space: labelSpace,
+          });
         });
 
         // value — shrunk if a long figure would otherwise overrun the card
-        doc.setFont('helvetica', 'bold');
+        doc.setFont("helvetica", "bold");
         let valueSize = 18;
         doc.setFontSize(valueSize);
         while (valueSize > 10 && doc.getTextWidth(metric.value) > inner) {
@@ -329,16 +338,16 @@ function buildDoc(data: AnalyticsReportData) {
         // simply leave this line off. A 'neutral' one is progress through a
         // target rather than a movement, so it gets no +/- sign.
         if (metric.change) {
-          const neutral = metric.tone === 'neutral';
-          const positive = metric.tone === 'positive';
+          const neutral = metric.tone === "neutral";
+          const positive = metric.tone === "positive";
           const signed =
-            metric.change.startsWith('+') || metric.change.startsWith('-');
+            metric.change.startsWith("+") || metric.change.startsWith("-");
           const changeText =
             neutral || signed
               ? metric.change
-              : `${positive ? '+' : ''}${metric.change}`;
+              : `${positive ? "+" : ""}${metric.change}`;
 
-          doc.setFont('helvetica', 'bold');
+          doc.setFont("helvetica", "bold");
           doc.setFontSize(7.5);
           doc.setTextColor(...(neutral ? NAVY : positive ? GREEN : RED));
           doc.text(changeText, x + 5, y + 28);
@@ -346,8 +355,8 @@ function buildDoc(data: AnalyticsReportData) {
 
           // The caption only if it genuinely fits beside the figure. Printed
           // regardless, it ran into it — "87% of monthplan".
-          const caption = neutral ? 'of plan' : 'vs prev.';
-          doc.setFont('helvetica', 'normal');
+          const caption = neutral ? "of plan" : "vs prev.";
+          doc.setFont("helvetica", "normal");
           doc.setFontSize(6);
           if (changeW + 1.5 + doc.getTextWidth(caption) <= inner) {
             doc.setTextColor(...FAINT);
@@ -369,16 +378,16 @@ function buildDoc(data: AnalyticsReportData) {
     doc.setFillColor(...CARD);
     doc.setDrawColor(...HAIRLINE);
     doc.setLineWidth(0.3);
-    doc.roundedRect(margin, y - 4, contentWidth, panelH, 2, 2, 'FD');
+    doc.roundedRect(margin, y - 4, contentWidth, panelH, 2, 2, "FD");
 
     const half = contentWidth / 2;
-    doc.setFont('helvetica', 'bold');
+    doc.setFont("helvetica", "bold");
     doc.setFontSize(6.5);
     doc.setTextColor(...MUTED);
-    tracked(doc, 'THIS MONTH', margin + 6, y + 2, { space: 0.6 });
-    tracked(doc, 'PREVIOUS MONTH', margin + half + 6, y + 2, { space: 0.6 });
+    tracked(doc, "THIS MONTH", margin + 6, y + 2, { space: 0.6 });
+    tracked(doc, "PREVIOUS MONTH", margin + half + 6, y + 2, { space: 0.6 });
 
-    doc.setFont('helvetica', 'bold');
+    doc.setFont("helvetica", "bold");
     doc.setFontSize(17);
     doc.setTextColor(...NAVY);
     doc.text(section.monthly.thisMonth, margin + 6, y + 12);
@@ -423,22 +432,27 @@ function buildDoc(data: AnalyticsReportData) {
     doc.setLineWidth(0.3);
     doc.line(margin, footerY - 6, right, footerY - 6);
 
-    doc.setFont('helvetica', 'normal');
+    doc.setFont("helvetica", "normal");
     doc.setFontSize(7);
     doc.setTextColor(...FAINT);
-    tracked(doc, 'SEARLE · E-DETAILING', margin, footerY, { space: 0.8 });
+    tracked(doc, "SEARLE · E-DETAILING", margin, footerY, { space: 0.8 });
 
-    doc.setFont('helvetica', 'bold');
+    doc.setFont("helvetica", "bold");
     doc.setFontSize(7);
     doc.setTextColor(...MUTED);
-    doc.text(`Page ${page} of ${pageCount}`, margin + contentWidth / 2, footerY, {
-      align: 'center',
-    });
+    doc.text(
+      `Page ${page} of ${pageCount}`,
+      margin + contentWidth / 2,
+      footerY,
+      {
+        align: "center",
+      },
+    );
 
-    doc.setFont('helvetica', 'normal');
+    doc.setFont("helvetica", "normal");
     doc.setFontSize(7);
     doc.setTextColor(...FAINT);
-    doc.text(`Generated ${generated}`, right, footerY, { align: 'right' });
+    doc.text(`Generated ${generated}`, right, footerY, { align: "right" });
   }
 
   return doc;
@@ -449,16 +463,16 @@ export async function exportAnalyticsPdf(data: AnalyticsReportData) {
   const doc = buildDoc(data);
   const fileName = `analytics-report-${new Date().toISOString().slice(0, 10)}.pdf`;
 
-  if (Platform.OS === 'web') {
+  if (Platform.OS === "web") {
     // Triggers a normal browser file download — no print dialog.
     doc.save(fileName);
     return;
   }
 
   // Native: write the PDF to disk, then hand it to the OS share/save sheet.
-  const FileSystem = await import('expo-file-system/legacy');
-  const Sharing = await import('expo-sharing');
-  const base64 = doc.output('datauristring').split('base64,')[1] ?? '';
+  const FileSystem = await import("expo-file-system/legacy");
+  const Sharing = await import("expo-sharing");
+  const base64 = doc.output("datauristring").split("base64,")[1] ?? "";
   const uri = `${FileSystem.cacheDirectory}${fileName}`;
   await FileSystem.writeAsStringAsync(uri, base64, {
     encoding: FileSystem.EncodingType.Base64,
@@ -466,9 +480,9 @@ export async function exportAnalyticsPdf(data: AnalyticsReportData) {
 
   if (await Sharing.isAvailableAsync()) {
     await Sharing.shareAsync(uri, {
-      mimeType: 'application/pdf',
-      dialogTitle: 'Analytics Report',
-      UTI: 'com.adobe.pdf',
+      mimeType: "application/pdf",
+      dialogTitle: "Analytics Report",
+      UTI: "com.adobe.pdf",
     });
   }
 }

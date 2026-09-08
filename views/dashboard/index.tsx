@@ -18,7 +18,7 @@ const NAV_CARDS: {
 }[] = [
   {
     label: 'Doctors',
-    description: 'Every doctor assigned',
+    description: 'Assigned doctor',
     iconName: 'people-outline',
     href: '/doctor-list',
   },
@@ -26,7 +26,7 @@ const NAV_CARDS: {
     // The rep's whole product book from products/brands — every brand and SKU
     // they carry, not just what is currently being forced.
     label: 'Portfolio',
-    description: 'Every brand and SKU assigned',
+    description: 'Assigned brand and SKU ',
     iconName: 'pricetags-outline',
     href: '/my-brands',
   },
@@ -34,8 +34,8 @@ const NAV_CARDS: {
     // The slide decks themselves — read-only previews of the visuals a rep
     // presents during a call. Named for the content, not the products, so it
     // doesn't read as a repeat of the Portfolio card above.
-    label: 'Product Content for e-Detailing',
-    description: 'Detailing slides you show in calls',
+    label: 'Content',
+    description: 'Product Content for e-Detailing',
     iconName: 'albums-outline',
     href: '/content-library',
   },
@@ -46,8 +46,8 @@ const NAV_CARDS: {
     href: '/planned-calls',
   },
   {
-    label: 'View Sales & Call Performance',
-    description: 'Your calls and coverage',
+    label: 'Analytics',
+    description: 'View Sales & Call Performance',
     iconName: 'bar-chart-outline',
     href: '/analytics',
   },
