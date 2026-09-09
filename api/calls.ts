@@ -6,6 +6,7 @@ import {
   mergeCompletedDoctorIds,
   mergeDoctorSummary,
   mergeEngagement,
+  mergeSlideEngagement,
   mergeCallNotes,
   mergeMonthlyTotals,
 } from '@/lib/offline/localCallModels';
@@ -39,6 +40,12 @@ export interface CallTrackingInput {
   shown_slides_count?: number;
   slides_total_time_seconds?: number;
   each_slide_time?: unknown; // jsonb — e.g. { [slideLabel]: seconds } or number[]
+  /**
+   * jsonb — one entry per slide played: { order, forcing, brand, sku, url,
+   * seconds }. Per-SLIDE times, which each_slide_time cannot carry (its keys
+   * are "brand - sku", shared by every image of a SKU).
+   */
+  slide_time_detail?: unknown;
   brand?: unknown; // jsonb — brands shown, e.g. [{ id, name }]
   sku?: unknown; // jsonb — SKUs shown, each linked, e.g. [{ brand_id, name }]
   brand_slide_time?: unknown; // jsonb
@@ -267,6 +274,76 @@ export const useEngagement = (mieId?: string, period?: CallPeriod) => {
 
   const data = useMemo(
     () => mergeEngagement(query.data, local, mieId, query.dataUpdatedAt, period),
+    [query.data, query.dataUpdatedAt, local, mieId, period],
+  );
+
+  return { ...query, data };
+};
+
+/** One bar of the per-slide breakdown: a single image in the deck. */
+export interface SlideEngagementSlide {
+  /** The slide's identity — its image path. Stable across calls and devices. */
+  url: string;
+  /** What goes under the bar: the SKU, numbered when the deck repeats it. */
+  label: string;
+  brand: string;
+  sku: string;
+  /** Position in the deck as played, 1-based. */
+  order: number;
+  /** Average seconds on screen, over the calls it was shown in. */
+  seconds: number;
+  /** Seconds over every one of those calls, added up. */
+  totalSeconds: number;
+  /** Calls the average is taken over. */
+  calls: number;
+}
+
+/** Every slide shown to one specialty, in deck order. */
+export interface SlideEngagementSpecialty {
+  name: string;
+  slides: SlideEngagementSlide[];
+  /** Calls behind the most-shown slide — what the averages are drawn from. */
+  calls: number;
+  totalSeconds: number;
+}
+
+export interface SlideEngagementBreakdown {
+  bySpecialty: SlideEngagementSpecialty[];
+}
+
+export const slideEngagementKey = (mieId?: string, period?: CallPeriod) =>
+  ['slide-engagement', mieId ?? 'no-mie', periodKey(period)] as const;
+
+export const getSlideEngagement = async (
+  mieId: string,
+  period?: CallPeriod,
+): Promise<SlideEngagementBreakdown> => {
+  const res = (await axios.get('/calls/slide-engagement', {
+    params: { mieId, from: period?.from, to: period?.to },
+  })) as unknown as { success: boolean } & Partial<SlideEngagementBreakdown>;
+  return { bySpecialty: res.bySpecialty ?? [] };
+};
+
+/**
+ * Time on each individual slide, grouped by the specialty it was shown to.
+ *
+ * Forcing content is resolved BY SPECIALTY, so each specialty is shown a
+ * different deck — which is why the breakdown is grouped rather than pooled,
+ * and why the chart picks one specialty at a time instead of plotting them
+ * together.
+ */
+export const useSlideEngagement = (mieId?: string, period?: CallPeriod) => {
+  const query = useQuery({
+    queryKey: slideEngagementKey(mieId, period),
+    queryFn: () => getSlideEngagement(mieId as string, period),
+    enabled: Boolean(mieId),
+    staleTime: 5 * 60 * 1000,
+  });
+  const local = useLocalCalls();
+
+  const data = useMemo(
+    () =>
+      mergeSlideEngagement(query.data, local, mieId, query.dataUpdatedAt, period),
     [query.data, query.dataUpdatedAt, local, mieId, period],
   );
 

@@ -19,6 +19,12 @@ export interface ColumnChartPoint {
   valueLabel?: string;
   /** Text drawn above the column — the raw figure behind the bar. */
   topLabel?: string;
+  /**
+   * A second, quieter line under the label — for when the category needs both
+   * an identifier and a name ("Slide 3" over "EMSYN MET"). Omitted on the
+   * breakdowns whose label already says everything.
+   */
+  subLabel?: string;
 }
 
 interface AppColumnChartProps {
@@ -53,6 +59,8 @@ const MIN_SLOT = MAX_BAR + 40;
 const TOP_LABEL_SPACE = 20;
 /** Space under the axis for the category label (two lines at most). */
 const LABEL_BLOCK = 34;
+/** Extra space when the points also carry a sub-label beneath that. */
+const SUB_LABEL_BLOCK = 14;
 
 /**
  * The project's vertical bar chart. Every column chart should go through here so
@@ -155,9 +163,18 @@ export function AppColumnChart({
           </Animated.View>
         </View>
 
-        <Text style={styles.axisLabel} numberOfLines={2}>
+        <Text
+          style={styles.axisLabel}
+          numberOfLines={point.subLabel ? 1 : 2}
+        >
           {point.label}
         </Text>
+
+        {point.subLabel ? (
+          <Text style={styles.axisSubLabel} numberOfLines={2}>
+            {point.subLabel}
+          </Text>
+        ) : null}
       </Pressable>
     );
   };
@@ -178,8 +195,15 @@ export function AppColumnChart({
 
       {width === 0 ? (
         // One frame before the card has been measured; hold the space so the
-        // rules don't flash on their own.
-        <View style={{ height: height + LABEL_BLOCK }} />
+        // rules don't flash on their own. A sub-labelled axis is a line taller.
+        <View
+          style={{
+            height:
+              height +
+              LABEL_BLOCK +
+              (data.some((point) => point.subLabel) ? SUB_LABEL_BLOCK : 0),
+          }}
+        />
       ) : scrolls ? (
         <ScrollView
           horizontal
@@ -294,6 +318,18 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     fontSize: 11,
     fontWeight: '600',
+    textAlign: 'center',
+  },
+  // The name behind the identifier — quieter, so the axis still reads as a run
+  // of "Slide 1, 2, 3" at a glance rather than a wall of product names.
+  axisSubLabel: {
+    width: '100%',
+    marginTop: 1,
+    paddingHorizontal: 2,
+    color: Colors.textMuted,
+    fontSize: 9.5,
+    fontWeight: '600',
+    opacity: 0.75,
     textAlign: 'center',
   },
 });

@@ -1,5 +1,6 @@
 import { useDoctorCallSummary } from '@/api/calls';
 import { Tag } from '@/components/tag';
+import { AppChartEmpty } from '@/components/ui/AppChartEmpty';
 import { AppColumnChart } from '@/components/ui/AppColumnChart';
 import { AppMetricCard } from '@/components/ui/AppMetricCard';
 import { Colors } from '@/constants/theme';
@@ -385,6 +386,40 @@ export default function CallAnalytics({
     valueLabel: `${item.value}s`,
   }));
 
+  /**
+   * The deck as it was played, one column per slide.
+   *
+   * The brand chart above answers "which product got the time"; this answers
+   * "where in the deck did it go" — the two are different questions, and a deck
+   * running three or four images per brand collapses the second one entirely.
+   *
+   * Every slide is plotted, including those never opened. A 0s column is not
+   * noise on a single call's report: it says that slide was skipped, which is
+   * exactly what a rep reviewing the call they just made wants to see.
+   *
+   * Labelled the way the Analytics chart labels it — deck position in front,
+   * product beneath — so the two read the same way.
+   *
+   * Read from `slideTimes` rather than the padded `safeSlideTimes`: the viewer
+   * sizes that array to the whole deck and fills it with zeros, so it is
+   * already complete when there is anything at all. Padding it here would turn
+   * a report opened WITHOUT timings into a row of zero columns that looks like
+   * a deck nobody read, instead of an honest "no slides shown".
+   */
+  const perSlideData = slideTimes.map((seconds, index) => {
+    const { primary, secondary } = splitSlideLabel(
+      getSlideLabel(slideLabels, index),
+    );
+    // A BRAND-WISE slide repeats the brand in the SKU half; show it once.
+    const name = secondary && secondary !== primary ? secondary : primary;
+    return {
+      label: `Slide ${index + 1}`,
+      subLabel: name,
+      value: seconds,
+      topLabel: `${Math.max(0, Math.round(seconds))}s`,
+    };
+  });
+
   // The rows under the chart are SKU-wise.
   const skuTimeSummary = callSkuTimes.map((item, index) => ({
     id: `${index}-${item.name}`,
@@ -680,6 +715,28 @@ export default function CallAnalytics({
                 ))}
               </View>
             ) : null}
+          </View>
+
+          {/* The deck, slide by slide — where in the run the time actually
+              went, which the brand chart above cannot show once a brand
+              carries more than one image. */}
+          <View style={styles.card}>
+            <View style={styles.sectionHeader}>
+              <Ionicons name="albums-outline" size={16} color={Colors.primary} />
+              <Text style={styles.sectionTitle}>Time Spent per Slide</Text>
+            </View>
+
+            <View style={styles.chartWrapper}>
+              {perSlideData.length > 0 ? (
+                <AppColumnChart data={perSlideData} height={140} />
+              ) : (
+                <AppChartEmpty
+                  message="No slides were shown on this call"
+                  icon="albums-outline"
+                  height={140}
+                />
+              )}
+            </View>
           </View>
 
           <View style={styles.sideColumn}>

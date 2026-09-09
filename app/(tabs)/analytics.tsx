@@ -1,8 +1,10 @@
 import {
   useEngagement,
   useMonthlyCallTotals,
+  useSlideEngagement,
   type CallPeriod,
   type EngagementSlice,
+  type SlideEngagementSlide,
 } from '@/api/calls';
 import { useInfinitePlannedDoctors } from '@/api/doctor';
 import {
@@ -13,6 +15,7 @@ import {
 } from '@/api/sales';
 import { AppButton } from '@/components/ui/AppButton';
 import { AppChartCard } from '@/components/ui/AppChartCard';
+import { AppChartEmpty } from '@/components/ui/AppChartEmpty';
 import { AppColumnChart, ColumnChartPoint } from '@/components/ui/AppColumnChart';
 import { AppLineChart, LineChartDataPoint } from '@/components/ui/AppLineChart';
 import { AppDayRangeSheet, AppMonthSheet, daysInMonth } from '@/components/ui/AppPeriodSheets';
@@ -32,7 +35,14 @@ import { useAuth } from '@/providers/AuthProvider';
 import { mapDoctorRows } from '@/views/planned-calls/mapDoctor';
 import { Ionicons } from '@expo/vector-icons';
 import { useMemo, useState } from 'react';
-import { Alert, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import {
+  Alert,
+  ScrollView,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 
 const callVolumeData: LineChartDataPoint[] = [
   { label: 'Jan', value: 45 },
@@ -57,6 +67,28 @@ function toColumns(slices: EngagementSlice[]): ColumnChartPoint[] {
     label: slice.name,
     value: slice.seconds,
     topLabel: formatDuration(slice.seconds),
+  }));
+}
+
+/**
+ * One specialty's slides as columns, in the order the doctor was shown them.
+ *
+ * NOT re-sorted by time, unlike every other breakdown on this screen. What a
+ * rep changes their deck on is WHERE attention falls away, and that only reads
+ * off the chart while the bars stay in play order — ranked by seconds it
+ * becomes a league table of slides with the shape of the deck thrown away.
+ */
+function toSlideColumns(slides: SlideEngagementSlide[]): ColumnChartPoint[] {
+  return slides.map((slide) => ({
+    // The DECK POSITION leads, with the product beneath it. Naming the bars
+    // after the product alone left no way to tell slide 1 from slide 5 — a
+    // deck runs three or four images per brand, so half the axis read
+    // "EMSYN MET" and the order was invisible. Which is the whole question a
+    // chart in deck order exists to answer.
+    label: slide.order > 0 ? `Slide ${slide.order}` : slide.label,
+    subLabel: slide.order > 0 ? slide.label : undefined,
+    value: slide.seconds,
+    topLabel: formatDuration(slide.seconds),
   }));
 }
 
@@ -356,6 +388,30 @@ export default function AnalyticsScreen() {
   const engagementQuery = useEngagement(user?.mieId, callPeriod);
   const engagement = engagementQuery.data;
   /**
+   * The same period broken down per SLIDE, grouped by the specialty each deck
+   * was shown to — one deck per specialty, so they are picked between rather
+   * than plotted together.
+   */
+  const slideEngagementQuery = useSlideEngagement(user?.mieId, callPeriod);
+  const slideSpecialties = slideEngagementQuery.data?.bySpecialty ?? [];
+  /**
+   * Which specialty's deck is on the chart. Null until the rep picks one, and
+   * left null when they don't: the response leads with the specialty they spent
+   * the most time on, which is the one worth opening on.
+   *
+   * Resolved by NAME rather than by index, and falling back to the first, so a
+   * changed period that no longer contains the chosen specialty lands on a real
+   * deck instead of an empty chart — no effect needed to reset it.
+   */
+  const [slideSpecialty, setSlideSpecialty] = useState<string | null>(null);
+  const activeSlideSpecialty =
+    slideSpecialties.find((group) => group.name === slideSpecialty) ??
+    slideSpecialties[0];
+  const slideColumns = toSlideColumns(activeSlideSpecialty?.slides ?? []);
+  const slideSpecialtyOptions: SegmentedOption<string>[] = slideSpecialties.map(
+    (group) => ({ key: group.name, label: group.name }),
+  );
+  /**
    * Brick-wise sales for the same period, fetched as soon as the screen opens
    * rather than when the Sales tab is first tapped.
    *
@@ -374,12 +430,26 @@ export default function AnalyticsScreen() {
   const salesQuery = useMieSales(user?.mieId, callPeriod);
   const sales = salesQuery.data;
   /**
-   * True while the period's sales are still being fetched and nothing is cached
-   * for it yet. A cold request runs the better part of a minute, so every figure
-   * on this view is a skeleton until it lands — showing 0 in the meantime would
-   * be indistinguishable from a period that genuinely had no sales.
+   * True while the period's sales are being fetched — whether or not something
+   * is already cached for it. Showing 0 in the meantime would be
+   * indistinguishable from a period that genuinely had no sales.
+   *
+   * `isFetching`, NOT just `isPending`, and the difference is the whole point.
+   * The query cache is PERSISTED TO DISK, so changing the month often finds an
+   * entry already sitting there and renders it instantly with `isPending`
+   * false. That entry can be old enough to have been computed by a previous
+   * version of the endpoint — which is exactly what happened when the sales
+   * query changed under it: the tiles flashed the stale figure, then swapped to
+   * the real one a second later, and a rep watching had no way to know which of
+   * the two numbers to believe.
+   *
+   * A number that is about to change is not worth showing. This query already
+   * runs with staleTime 0 and refetchOnMount 'always', so anything it has is
+   * stale by its own definition; hold the skeleton until the fresh figure
+   * lands.
    */
-  const isSalesLoading = isSales && salesQuery.isPending;
+  const isSalesLoading =
+    isSales && (salesQuery.isPending || salesQuery.isFetching);
 
   /**
    * The same treatment for the call figures.
@@ -392,19 +462,31 @@ export default function AnalyticsScreen() {
    *
    * Gated on `mieId` because a disabled query reports `pending` forever in React
    * Query v5; without it a signed-in-but-unresolved rep would sit on skeletons
-   * that never resolve. `isPending` (not `isFetching`) so a period already in
-   * cache keeps showing its figures while it refreshes in the background —
-   * blanking settled numbers on every revisit would be its own kind of lie.
+   * that never resolve.
+   *
+   * `isFetching` here too, for the same reason as the sales flag above: a month
+   * already on disk would otherwise render its old figures with no indication
+   * they are about to be replaced. These queries carry a 1-5 minute staleTime,
+   * so a genuinely fresh period is not refetched and does not flicker — the
+   * skeleton appears only when a request is actually in flight.
    */
   const hasMie = Boolean(user?.mieId);
   // Feeds the Calls Completed boxes AND the metric grid: both read
   // /calls/monthly-totals, so they arrive together and should wait together.
   const isCallTotalsLoading =
-    !isSales && hasMie && monthlyTotalsQuery.isPending;
+    !isSales &&
+    hasMie &&
+    (monthlyTotalsQuery.isPending || monthlyTotalsQuery.isFetching);
   // The two breakdown charts come from their own request, so they get their own
   // flag rather than being held back by (or holding back) the totals.
   const isEngagementLoading =
-    !isSales && hasMie && engagementQuery.isPending;
+    !isSales && hasMie && (engagementQuery.isPending || engagementQuery.isFetching);
+  // Its own request again, so the slide chart shows its skeleton on its own
+  // rather than waiting on the two charts above it.
+  const isSlideEngagementLoading =
+    !isSales &&
+    hasMie &&
+    (slideEngagementQuery.isPending || slideEngagementQuery.isFetching);
 
   /**
    * SALES_BREAKDOWNS resolved against the response, each card plotted in ITS OWN
@@ -826,9 +908,10 @@ export default function AnalyticsScreen() {
                 ) : breakdown.data.length > 0 ? (
                   <AppColumnChart data={breakdown.data} height={210} />
                 ) : (
-                  <Text style={styles.chartEmpty}>
-                    No sales recorded in this period.
-                  </Text>
+                  <AppChartEmpty
+                    message="No sales recorded in this period"
+                    icon="cash-outline"
+                  />
                 )}
               </AppChartCard>
             ))}
@@ -888,9 +971,10 @@ export default function AnalyticsScreen() {
                   ))}
                 </View>
               ) : (
-                <Text style={styles.chartEmpty}>
-                  No customers sold to in this period.
-                </Text>
+                <AppChartEmpty
+                  message="No customers sold to in this period"
+                  icon="people-outline"
+                />
               )}
             </AppChartCard>
           </>
@@ -909,9 +993,10 @@ export default function AnalyticsScreen() {
               ) : specialtyColumns.length > 0 ? (
                 <AppColumnChart data={specialtyColumns} height={210} />
               ) : (
-                <Text style={styles.chartEmpty}>
-                  No calls recorded in this period.
-                </Text>
+                <AppChartEmpty
+                  message="No calls recorded in this period"
+                  icon="call-outline"
+                />
               )}
             </AppChartCard>
 
@@ -926,9 +1011,79 @@ export default function AnalyticsScreen() {
               ) : brandColumns.length > 0 ? (
                 <AppColumnChart data={brandColumns} height={210} />
               ) : (
-                <Text style={styles.chartEmpty}>
-                  No brands detailed in this period.
-                </Text>
+                <AppChartEmpty
+                  message="No brands detailed in this period"
+                  icon="cube-outline"
+                />
+              )}
+            </AppChartCard>
+
+            {/**
+             * Per-slide time, one specialty's deck at a time.
+             *
+             * The two charts above say how long a BRAND was detailed; neither
+             * says which slide did the work. A brand's twelve minutes might be
+             * one image the doctor read closely and eleven that were paged
+             * past, and that is the difference a rep can act on.
+             *
+             * Split by specialty because forcing content is resolved by
+             * specialty: a cardiologist and a diabetologist are shown different
+             * decks, so their slides do not belong on one axis.
+             */}
+            <AppChartCard
+              title="Time Spent per Slide"
+              icon={
+                <Ionicons name="albums-outline" size={20} color={Colors.primary} />
+              }
+              chartWrapperStyle={styles.barChartWrapper}
+              style={styles.chartCard}
+            >
+              {isSlideEngagementLoading ? (
+                <AppSkeletonChart bars={5} height={210} />
+              ) : activeSlideSpecialty ? (
+                <>
+                  {/* Every specialty the rep carries, not just the ones with
+                      slides this period — a specialty they detailed nobody in
+                      is an answer, and it can only be read off a button that
+                      is there to press.
+
+                      One specialty is still not a choice, so the row is drawn
+                      only when there is something to switch between. It
+                      scrolls: specialty names are long, and a rep can carry
+                      more of them than fit across a phone. */}
+                  {slideSpecialtyOptions.length > 1 ? (
+                    <ScrollView
+                      horizontal
+                      showsHorizontalScrollIndicator={false}
+                      style={styles.slideSpecialtyScroll}
+                      contentContainerStyle={styles.slideSpecialtyRow}
+                    >
+                      <AppSegmentedToggle
+                        options={slideSpecialtyOptions}
+                        value={activeSlideSpecialty.name}
+                        onChange={setSlideSpecialty}
+                        variant="box"
+                      />
+                    </ScrollView>
+                  ) : null}
+
+                  {/* The picker above stays put when the chosen specialty has
+                      nothing to plot — replacing the whole card with an empty
+                      state would take away the means of choosing another. */}
+                  {slideColumns.length > 0 ? (
+                    <AppColumnChart data={slideColumns} height={210} />
+                  ) : (
+                    <AppChartEmpty
+                      message={`No slides shown to a ${activeSlideSpecialty.name} in this period`}
+                      icon="albums-outline"
+                    />
+                  )}
+                </>
+              ) : (
+                <AppChartEmpty
+                  message="No specialties assigned to you yet"
+                  icon="people-outline"
+                />
               )}
             </AppChartCard>
           </>
@@ -1119,10 +1274,19 @@ const styles = StyleSheet.create({
   barChartWrapper: {
     marginTop: 32,
   },
-  chartEmpty: {
-    color: Colors.textMuted,
-    fontSize: 13,
-    fontWeight: '600',
+  // The specialty picker sits above the slide chart rather than in the card
+  // header: specialty names are far too long for the header's action slot.
+  slideSpecialtyScroll: {
+    // The gap the caption used to provide between the buttons and the bars.
+    // `flexGrow: 0` stops the horizontal ScrollView claiming the card's spare
+    // height and pushing the chart down with it.
+    flexGrow: 0,
+    marginBottom: 16,
+  },
+  slideSpecialtyRow: {
+    // Its own left edge, not the toggle's — a scrolling row that starts flush
+    // reads as clipped.
+    paddingRight: 4,
   },
   customerList: {
     gap: 8,

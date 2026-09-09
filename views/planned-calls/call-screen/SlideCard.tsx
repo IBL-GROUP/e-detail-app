@@ -16,6 +16,14 @@ export interface Slide {
   bullets: string[];
   durationSeconds: number;
   image?: ImageSourcePropType;
+  /**
+   * What identifies this slide when its time is reported to analytics — the
+   * image's path, not the on-device copy behind `image`. Absent on the demo
+   * deck, which is never recorded against.
+   */
+  slideId?: string;
+  /** The deck's own play-order value, carried through for the same reason. */
+  forcing?: number | null;
 }
 
 interface SlideCardProps {

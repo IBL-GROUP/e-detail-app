@@ -84,6 +84,8 @@ function mapForcingSlides(slides: DoctorCallSlide[]): Slide[] {
     bullets: slide.bullets,
     durationSeconds: slide.durationSeconds,
     image: slide.image,
+    slideId: slide.slideId,
+    forcing: slide.forcing,
   }));
 }
 
@@ -110,6 +112,36 @@ function aggregateSlideTimes(
   });
 
   return [...totals.entries()].map(([name, seconds]) => ({ name, seconds }));
+}
+
+/**
+ * One entry per slide the rep actually played, each carrying the slide's own
+ * identity — what "Time Spent per Slide" on Analytics is drawn from.
+ *
+ * `each_slide_time` cannot answer that question and is not being asked to. It
+ * is keyed by the display label "brand - sku", which EVERY image of one SKU
+ * shares, so a three-image EMSYN MET run has one key there however it is
+ * written. Identity here is the image path (`slideId`), which is unique per
+ * slide and the same across calls, so a deck played to twenty doctors
+ * aggregates onto one set of bars.
+ *
+ * Slides never reached are left out rather than recorded as zero seconds: that
+ * is not evidence the slide was skipped over, only that the call ended first,
+ * and a zero bar would read as the former.
+ */
+function buildSlideTimeDetail(slides: Slide[], slideTimes: number[]) {
+  return slides
+    .map((slide, index) => ({
+      // Position in the deck as played, so the chart can be read in the order
+      // the doctor saw it.
+      order: index + 1,
+      forcing: slide.forcing ?? null,
+      brand: (slide.brandName ?? '').trim(),
+      sku: (slide.skuName ?? '').trim(),
+      url: slide.slideId ?? '',
+      seconds: slideTimes[index] ?? 0,
+    }))
+    .filter((entry) => entry.seconds > 0 && entry.url !== '');
 }
 
 function getAnalyticsSlideLabel(slide: Slide) {
@@ -391,8 +423,16 @@ export default function CallScreen({
       const slideLabels = slides.map(getAnalyticsSlideLabel);
       const eachSlideTime: Record<string, number> = {};
       slideLabels.forEach((label, index) => {
-        eachSlideTime[label] = slideTimes[index] ?? 0;
+        // SUMMED, not assigned: the label is "brand - sku", and a deck carries
+        // several images per SKU, so assigning let the last image of a run
+        // overwrite the ones before it — the map then reported one image's
+        // seconds under a name that read as though it covered all of them, and
+        // disagreed with brand_slide_time for the same call. Per-SLIDE figures
+        // live in slide_time_detail below; this map is per brand-sku pair and
+        // now says so honestly.
+        eachSlideTime[label] = (eachSlideTime[label] ?? 0) + (slideTimes[index] ?? 0);
       });
+      const slideTimeDetail = buildSlideTimeDetail(slides, slideTimes);
       const slidesTotalSeconds = slideTimes.reduce((sum, n) => sum + (n || 0), 0);
       const jointCall = (summary.jointCall ?? '')
         .split(',')
@@ -461,6 +501,9 @@ export default function CallScreen({
           shown_slides_count: slidesViewed,
           slides_total_time_seconds: slidesTotalSeconds,
           each_slide_time: eachSlideTime,
+          // Seconds per individual SLIDE — the one thing the maps around it
+          // cannot express, since they key on names several slides share.
+          slide_time_detail: slideTimeDetail,
           // Seconds per brand and per SKU, so a month of calls can be charted
           // without re-deriving them from slide labels (a brand-wise deck has no
           // SKU, and its label repeats the brand name).

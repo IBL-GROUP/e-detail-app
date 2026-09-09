@@ -5,6 +5,8 @@ import type {
   DoctorCallSummaryResponse,
   EngagementBreakdown,
   EngagementSlice,
+  SlideEngagementBreakdown,
+  SlideEngagementSlide,
   CallNote,
   MonthlyCallTotals,
 } from '@/api/calls';
@@ -513,4 +515,168 @@ export function mergeEngagement(
       .sort((a, b) => b.seconds - a.seconds);
 
   return { bySpecialty: toSlices(bySpecialty), byBrand: toSlices(byBrand) };
+}
+
+/** One entry of a call's slide_time_detail, once it has been read defensively. */
+interface LocalSlideTime {
+  url: string;
+  brand: string;
+  sku: string;
+  order: number;
+  seconds: number;
+}
+
+/**
+ * A call's slide_time_detail as entries, ignoring anything malformed.
+ *
+ * The column is jsonb and typed `unknown` on the client, and a call queued by
+ * an older build of the app carries no such array at all — so every field is
+ * checked rather than assumed.
+ */
+function slideTimes(value: unknown): LocalSlideTime[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((entry) => {
+      const row = (entry ?? {}) as Record<string, unknown>;
+      return {
+        url: String(row.url ?? '').trim(),
+        brand: String(row.brand ?? '').trim(),
+        sku: String(row.sku ?? '').trim(),
+        order: Number(row.order) || 0,
+        seconds: Number(row.seconds) || 0,
+      };
+    })
+    .filter((entry) => entry.url !== '' && entry.seconds > 0);
+}
+
+/**
+ * Per-slide times with this device's un-uploaded calls folded in — the same job
+ * `mergeEngagement` does for the brand and specialty charts, so all three read
+ * from the same set of calls and cannot disagree about a call made offline.
+ *
+ * Averages are merged by weight (the server's average × the calls behind it,
+ * plus the local seconds) so the result matches what a recount on the server
+ * would produce once the calls land.
+ *
+ * The bar LABELS are recomputed from scratch afterwards rather than kept from
+ * the server: a local call can introduce a second image of a SKU the server
+ * only ever saw once, and that slide's name has to change from "EMSYN MET
+ * 500MG" to "EMSYN MET 500MG 1" and "... 2" for the two bars to be tellable
+ * apart.
+ */
+export function mergeSlideEngagement(
+  server: SlideEngagementBreakdown | undefined,
+  local: LocalCall[],
+  mieId: string | undefined,
+  fetchedAt: number,
+  period?: LocalPeriod,
+): SlideEngagementBreakdown | undefined {
+  const extra = pendingCalls(local, fetchedAt, period).filter(
+    (call) => !mieId || String(call.tsoid) === String(mieId),
+  );
+  if (!server && extra.length === 0) return server;
+
+  /** specialty → slide url → running totals. */
+  const bySpecialty = new Map<
+    string,
+    Map<string, Omit<SlideEngagementSlide, 'label'>>
+  >();
+
+  const slotFor = (specialty: string, url: string) => {
+    const name = specialty.trim() || 'Unknown';
+    let slides = bySpecialty.get(name);
+    if (!slides) {
+      slides = new Map();
+      bySpecialty.set(name, slides);
+    }
+    return { slides, existing: slides.get(url) };
+  };
+
+  for (const group of server?.bySpecialty ?? []) {
+    // Entered even with no slides: the server sends EVERY specialty the rep
+    // carries so each one gets a button, and dropping the empty ones here
+    // would take those buttons away again the moment a local call exists.
+    slotFor(group.name, '');
+    for (const slide of group.slides) {
+      const { slides } = slotFor(group.name, slide.url);
+      slides.set(slide.url, {
+        url: slide.url,
+        brand: slide.brand,
+        sku: slide.sku,
+        order: slide.order,
+        // Back the total out of the average, so local seconds can be added to
+        // it and the average retaken over the combined call count.
+        totalSeconds: slide.seconds * slide.calls,
+        seconds: 0,
+        calls: slide.calls,
+      });
+    }
+  }
+
+  for (const call of extra) {
+    const specialty = String(call.doctor_specialty ?? '');
+    for (const entry of slideTimes(call.slide_time_detail)) {
+      const { slides, existing } = slotFor(specialty, entry.url);
+      slides.set(entry.url, {
+        url: entry.url,
+        // The server's names win where it has them: they came from the same
+        // recording and a local call adds nothing but another reading.
+        brand: existing?.brand || entry.brand,
+        sku: existing?.sku || entry.sku,
+        // Its earliest seen position, matching how the server picks one.
+        order:
+          existing && existing.order > 0
+            ? Math.min(existing.order, entry.order || existing.order)
+            : entry.order,
+        totalSeconds: (existing?.totalSeconds ?? 0) + entry.seconds,
+        seconds: 0,
+        calls: (existing?.calls ?? 0) + 1,
+      });
+    }
+  }
+
+  const groups = [...bySpecialty.entries()]
+    .map(([name, slides]) => {
+      const list = [...slides.values()]
+        .map((slide) => ({
+          ...slide,
+          totalSeconds: Math.round(slide.totalSeconds),
+          seconds:
+            slide.calls > 0 ? Math.round(slide.totalSeconds / slide.calls) : 0,
+        }))
+        .filter((slide) => slide.seconds > 0)
+        // Deck order, as the doctor saw them.
+        .sort((a, b) => a.order - b.order || a.url.localeCompare(b.url));
+
+      return {
+        name,
+        slides: labelSlides(list),
+        calls: list.reduce((most, slide) => Math.max(most, slide.calls), 0),
+        totalSeconds: list.reduce((sum, slide) => sum + slide.totalSeconds, 0),
+      };
+    })
+    // Empty specialties are KEPT — they are the ones whose answer is "you
+    // detailed nobody here", which the chart states rather than hides.
+    .sort(
+      (a, b) => b.totalSeconds - a.totalSeconds || a.name.localeCompare(b.name),
+    );
+
+  return { bySpecialty: groups };
+}
+
+/**
+ * Name each bar, the way the backend does — the SKU, or the brand for a
+ * BRAND-WISE row that has no SKU.
+ *
+ * Deliberately NOT numbered: `order` already carries the slide's position in
+ * the deck and the chart shows that in front, so numbering the images within
+ * their own run as well would put two competing scales on one axis.
+ */
+function labelSlides(
+  slides: Omit<SlideEngagementSlide, 'label'>[],
+): SlideEngagementSlide[] {
+  return slides.map((slide) => ({
+    ...slide,
+    label: slide.sku || slide.brand || 'Slide',
+  }));
 }

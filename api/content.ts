@@ -190,6 +190,27 @@ export function normalizeAssetUrl(url: string) {
   }
 }
 
+/**
+ * A slide's identity for ANALYTICS — the image's path, without the host.
+ *
+ * The full URL is not stable enough to aggregate on: the same image is served
+ * from whatever origin the device happened to be pointed at, so a rep who
+ * switched from staging to production would report one slide as two. The path
+ * under /uploads is the image, and is the same everywhere it is served from.
+ */
+export function slideIdentity(url: string) {
+  const normalized = normalizeAssetUrl(url);
+  if (!normalized) return '';
+  try {
+    const parsed = new URL(normalized);
+    const index = parsed.pathname.toLowerCase().indexOf('/uploads/');
+    return index >= 0 ? parsed.pathname.slice(index) : parsed.pathname;
+  } catch {
+    // A bare path was passed in — already what this returns.
+    return normalized;
+  }
+}
+
 export const forcingContentKey = (
   teamId?: number,
   doctorId?: string,
@@ -228,6 +249,13 @@ export interface DoctorCallSlide {
   bullets: string[];
   durationSeconds: number;
   image?: { uri: string };
+  /**
+   * What identifies this slide when its time is reported — see `slideIdentity`.
+   * NOT `image.uri`, which is the on-device copy and differs per device.
+   */
+  slideId?: string;
+  /** The deck's own play-order value ((priority × 100) + sequence). */
+  forcing?: number | null;
 }
 
 function numericPriority(value: number | null | undefined) {
@@ -289,6 +317,8 @@ export const useForcingSlides = ({ teamId, doctorId, specialtyId }: ForcingConte
         durationSeconds: parseDurationSeconds(row.duration),
         // Use the on-device copy when available so slides play offline.
         image: { uri: resolveCachedImage(normalizeAssetUrl(row.url)) ?? '' },
+        slideId: slideIdentity(row.url),
+        forcing: row.forcing ?? null,
       })),
   });
 };
