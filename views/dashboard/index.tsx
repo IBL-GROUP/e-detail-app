@@ -18,7 +18,7 @@ const NAV_CARDS: {
 }[] = [
   {
     label: 'Doctors',
-    description: 'Assigned doctor',
+    description: 'Assigned doctors',
     iconName: 'people-outline',
     href: '/doctor-list',
   },
