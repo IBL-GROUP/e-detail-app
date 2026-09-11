@@ -1,6 +1,7 @@
 import { Colors } from '@/constants/theme';
 import { LOGIN_EMAIL_DOMAIN, useAuth } from '@/providers/AuthProvider';
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { Redirect } from 'expo-router';
 import { useState } from 'react';
 import {
@@ -97,9 +98,16 @@ export default function LoginScreen() {
           <View style={styles.column}>
             <View style={styles.brand}>
               {/* Tinted, not solid — gives the wordmark something to sit under
-                  in what was an empty band, without a block of colour. */}
+                  in what was an empty band, without a block of colour. The
+                  OneForce mark inside it carries its own padding, so it is
+                  drawn at the tile's full size. */}
               <View style={styles.brandMark}>
-                <Ionicons name="pulse" size={24} color={Colors.primary} />
+                <Image
+                  source={require('@/assets/logo/oneforce.svg')}
+                  style={styles.brandLogo}
+                  contentFit="contain"
+                  accessibilityLabel="OneForce logo"
+                />
               </View>
 
               {/* <Text style={styles.heroEyebrow}>Searle E-Detailing</Text> */}
@@ -280,15 +288,19 @@ const styles = StyleSheet.create({
     marginBottom: 22,
   },
   brandMark: {
-    width: 54,
-    height: 54,
-    borderRadius: 15,
+    width: 64,
+    height: 64,
+    borderRadius: 17,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: '#E3EDF9',
     borderWidth: 1,
     borderColor: '#CEDFF1',
     marginBottom: 16,
+  },
+  brandLogo: {
+    width: 60,
+    height: 60,
   },
   brandTitle: {
     color: Colors.secondary,
