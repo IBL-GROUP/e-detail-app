@@ -52,6 +52,14 @@ interface ZoomableImageProps {
 }
 
 const RESET_MS = 180;
+/**
+ * A pinch released below this counts as "zoomed back out" and snaps to 1x.
+ *
+ * Nobody pinches back to exactly 1.00 by hand — they stop somewhere around
+ * 1.05. With a tighter threshold that left the slide looking normal while still
+ * counted as zoomed, so the carousel stayed locked and swipes did nothing.
+ */
+const SNAP_BACK_SCALE = 1.1;
 
 export function ZoomableImage({
   source,
@@ -124,13 +132,16 @@ export function ZoomableImage({
   }, [isActive, resetZoom]);
 
   const pinch = Gesture.Pinch()
-    .onBegin(() => {
+    // Claim the slide the moment a SECOND finger lands, before any scaling has
+    // happened, so the carousel underneath cannot read the pinch as a swipe.
+    //
+    // Not onBegin: on Android a pinch "begins" on the FIRST finger down, so
+    // claiming there locked the carousel on every tap and every one-finger
+    // touch — and a touch that never became a pinch never reaches onEnd to hand
+    // it back. The slide sat at 1x with swiping dead.
+    .onTouchesDown((event) => {
       'worklet';
-      // Claim the slide the moment a second finger lands, before any scaling has
-      // happened. A pinch is two fingers moving, which the carousel underneath
-      // would otherwise read as a swipe and page away mid-zoom. If the rep lets
-      // go without actually zooming, onEnd hands it straight back.
-      runOnJS(reportZoom)(true);
+      if (event.numberOfTouches >= 2) runOnJS(reportZoom)(true);
     })
     .onUpdate((event) => {
       'worklet';
@@ -139,7 +150,7 @@ export function ZoomableImage({
     })
     .onEnd(() => {
       'worklet';
-      if (scale.value <= 1.01) {
+      if (scale.value <= SNAP_BACK_SCALE) {
         // Pinched back out — settle exactly at 1x and re-centre, so the slide
         // is never left a pixel off true.
         scale.value = withTiming(1, { duration: RESET_MS });
@@ -161,6 +172,14 @@ export function ZoomableImage({
       savedTranslateX.value = translateX.value;
       savedTranslateY.value = translateY.value;
       runOnJS(reportZoom)(true);
+    })
+    // onEnd only runs for a pinch that actually activated. onFinalize runs after
+    // EVERY touch sequence, so it is the one place guaranteed to hand the
+    // carousel back: two fingers that landed but never pinched, or a pinch that
+    // was cancelled, would otherwise leave it locked with nothing zoomed.
+    .onFinalize(() => {
+      'worklet';
+      if (savedScale.value === 1) runOnJS(reportZoom)(false);
     });
 
   const pan = Gesture.Pan()

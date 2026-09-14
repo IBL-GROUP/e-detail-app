@@ -8,7 +8,18 @@ import {
   type StyleProp,
   type ViewStyle,
 } from 'react-native';
+import type { PanGesture } from 'react-native-gesture-handler';
 import Carousel, { type ICarouselInstance } from 'react-native-reanimated-carousel';
+
+/**
+ * Paging is a one-finger swipe. Two fingers are a pinch — never a page turn —
+ * so a zoom on a slide can't flick the carousel even in the moment before the
+ * slide has told it to stand down. Module-level so the carousel's gesture isn't
+ * rebuilt on every render.
+ */
+const configurePanGesture = (gesture: PanGesture) => {
+  gesture.maxPointers(1);
+};
 
 interface AppCarouselRenderInfo<T> {
   item: T;
@@ -117,6 +128,7 @@ export function AppCarousel<T>({
           data={data}
           loop={false}
           enabled={canSwipe}
+          onConfigurePanGesture={configurePanGesture}
           pagingEnabled
           overscrollEnabled={false}
           scrollAnimationDuration={280}
