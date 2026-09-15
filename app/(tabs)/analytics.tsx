@@ -787,6 +787,7 @@ export default function AnalyticsScreen() {
         options={PERFORMANCE_VIEWS}
         value={view}
         onChange={setView}
+        fullWidth
       />
 
       <View style={styles.rfiCard}>

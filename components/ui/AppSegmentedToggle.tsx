@@ -21,6 +21,13 @@ interface AppSegmentedToggleProps<T extends string> {
   value: T;
   onChange: (next: T) => void;
   variant?: SegmentedVariant;
+  /**
+   * Stretch the track across its container and split it evenly between the
+   * options. Off by default: most toggles are sized to their labels (see below),
+   * but a screen-level switch like Analytics' Call / Sales Performance reads
+   * better spanning the page.
+   */
+  fullWidth?: boolean;
   style?: ViewStyle;
 }
 
@@ -35,11 +42,12 @@ export function AppSegmentedToggle<T extends string>({
   value,
   onChange,
   variant = 'pill',
+  fullWidth = false,
   style,
 }: AppSegmentedToggleProps<T>) {
   const box = variant === 'box';
   return (
-    <View style={[styles.track, box && styles.trackBox, style]}>
+    <View style={[styles.track, box && styles.trackBox, fullWidth && styles.trackFull, style]}>
       {options.map((option) => {
         const active = option.key === value;
         return (
@@ -49,6 +57,7 @@ export function AppSegmentedToggle<T extends string>({
             style={({ pressed }) => [
               styles.pill,
               box && styles.pillBox,
+              fullWidth && styles.pillFull,
               active && styles.pillActive,
               active && box && styles.pillActiveBox,
               pressed && !active && styles.pressed,
@@ -94,6 +103,13 @@ const styles = StyleSheet.create({
     // stretching to full width. The box variant sits in a header row instead,
     // where flex-start would override alignItems and pin it to the top.
     alignSelf: 'center',
+  },
+  trackFull: {
+    alignSelf: 'stretch',
+  },
+  pillFull: {
+    // Equal shares of the track, whatever each label's length.
+    flex: 1,
   },
   pill: {
     flexShrink: 1,
