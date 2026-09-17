@@ -59,6 +59,7 @@ export function mapDoctorRow(row: DoctorDataRow): Doctor {
     visitsChamber: row.VisitsChamber ?? 0,
     visitsGroup: row.VisitsGroup ?? 0,
     visitsParking: row.VisitsParking ?? 0,
+    visitsJoin: row.VisitsJoin ?? 0,
   };
 }
 

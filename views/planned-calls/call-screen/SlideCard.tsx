@@ -1,7 +1,18 @@
 import { Colors } from '@/constants/theme';
 import { ZoomableImage } from '@/components/ui/ZoomableImage';
 import { Image as ExpoImage } from 'expo-image';
-import { ImageSourcePropType, Platform, StyleSheet, Text, View, useWindowDimensions } from 'react-native';
+import { useVideoPlayer, VideoView, type VideoContentFit } from 'expo-video';
+import { useEffect, useRef } from 'react';
+import {
+  ImageSourcePropType,
+  Platform,
+  StyleSheet,
+  Text,
+  View,
+  useWindowDimensions,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native';
 import Svg, { Defs, LinearGradient, Rect, Stop } from 'react-native-svg';
 
 export interface Slide {
@@ -51,6 +62,111 @@ const webSideImageStyle = {
   display: 'block',
 };
 
+/**
+ * Whether a slide asset is video rather than a still.
+ *
+ * Decided from the EXTENSION, because that is all a slide carries — the deck
+ * stores a URL, not a MIME type. The upload route writes a known extension
+ * for every accepted type (EXT_BY_MIME in routes.upload.js), so the two lists
+ * have to be kept in step.
+ *
+ * A GIF is deliberately absent: expo-image animates it, so it is a still as
+ * far as this file is concerned and needs none of the machinery below.
+ */
+const VIDEO_EXTENSIONS = /\.(mp4|webm|mov|ogv)(\?|#|$)/i;
+const isVideoUri = (uri: string | null) =>
+  Boolean(uri) && VIDEO_EXTENSIONS.test(String(uri));
+
+/**
+ * A video slide.
+ *
+ * Its own component because `useVideoPlayer` is a hook and most slides are
+ * not video — branching inside SlideCard would make the hook conditional.
+ *
+ * PLAYS ONLY WHILE THE SLIDE IS THE ONE ON SCREEN. A rep swiping through a
+ * deck would otherwise leave a video running underneath the slides after it,
+ * audible to the doctor with nothing on screen to explain it. `isActive` is
+ * already what the carousel uses to drop the zoom on a slide it has paged
+ * past, so the video follows the same signal.
+ *
+ * Autoplay is deliberate: the rep navigated here to show this, and a slide
+ * that sits on a still frame waiting to be pressed reads as broken mid-call.
+ * Native controls are on, so pausing and seeking are one tap away.
+ */
+/**
+ * The same thing for the WEB build.
+ *
+ * expo-video is not used here for the same reason `<img>` is used instead of
+ * ExpoImage: the browser already has a perfectly good player, and the web
+ * build leans on it.
+ *
+ * But a bare `<video controls>` is not enough. It sat at 0:00 until someone
+ * pressed play, and it kept playing after the rep swiped to the next slide,
+ * because nothing connected it to `isActive`. This does both.
+ *
+ * AUTOPLAY CAN BE REFUSED, and that is fine. Browsers block playback with
+ * sound until the page has been interacted with, so the promise from play()
+ * is caught rather than left to reject: on a refusal the slide simply shows
+ * its controls and waits, which is the behaviour we had before anyway. In a
+ * call the rep has already tapped through to get here, so it usually plays.
+ */
+function SlideVideoWeb({
+  uri,
+  isActive,
+  style,
+}: {
+  uri: string;
+  isActive: boolean;
+  style: React.CSSProperties;
+}) {
+  const ref = useRef<HTMLVideoElement | null>(null);
+
+  useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    if (isActive) {
+      // Refused autoplay is not an error worth surfacing - the controls are
+      // right there.
+      void element.play().catch(() => undefined);
+    } else {
+      element.pause();
+    }
+  }, [isActive]);
+
+  return <video ref={ref} src={uri} controls playsInline style={style} />;
+}
+
+function SlideVideo({
+  uri,
+  isActive,
+  style,
+  contentFit = 'contain',
+}: {
+  uri: string;
+  isActive: boolean;
+  style: StyleProp<ViewStyle>;
+  contentFit?: VideoContentFit;
+}) {
+  const player = useVideoPlayer(uri, (instance) => {
+    instance.loop = false;
+  });
+
+  useEffect(() => {
+    if (isActive) player.play();
+    else player.pause();
+  }, [isActive, player]);
+
+  return (
+    <VideoView
+      player={player}
+      style={style}
+      contentFit={contentFit}
+      nativeControls
+      allowsFullscreen
+    />
+  );
+}
+
 function getImageUri(source: ImageSourcePropType | undefined) {
   if (!source || Array.isArray(source) || typeof source === 'number') {
     return null;
@@ -69,6 +185,7 @@ export function SlideCard({ slide, isActive = true, onZoomChange }: SlideCardPro
   const isWeb = Platform.OS === 'web';
   const isLandscape = width > height;
   const imageUri = getImageUri(slide.image);
+  const isVideo = isVideoUri(imageUri);
   const heroGradientHeight = isWeb ? 260 : 180;
   const showMobileEdgeShadow = !isWeb;
 
@@ -79,7 +196,24 @@ export function SlideCard({ slide, isActive = true, onZoomChange }: SlideCardPro
           {isWeb && imageUri ? (
             // The browser zooms the whole page, so the web build needs nothing
             // of its own here.
-            <img src={imageUri} alt={slide.title} style={webHeroImageStyle} />
+            isVideo ? (
+              <SlideVideoWeb
+                uri={imageUri}
+                isActive={isActive}
+                style={webHeroImageStyle}
+              />
+            ) : (
+              <img src={imageUri} alt={slide.title} style={webHeroImageStyle} />
+            )
+          ) : isVideo && imageUri ? (
+            // No ZoomableImage around it: a video has its own controls and its
+            // own fullscreen, and a pinch handler on top would fight them.
+            <SlideVideo
+              uri={imageUri}
+              isActive={isActive}
+              style={styles.heroImage}
+              contentFit="contain"
+            />
           ) : (
             // Tablet: pinch / double-tap into the slide's small print.
             <ZoomableImage
@@ -164,7 +298,22 @@ export function SlideCard({ slide, isActive = true, onZoomChange }: SlideCardPro
 
         {slide.image ? (
           isWeb && imageUri ? (
-            <img src={imageUri} alt={slide.title} style={webSideImageStyle} />
+            isVideo ? (
+              <SlideVideoWeb
+                uri={imageUri}
+                isActive={isActive}
+                style={webSideImageStyle}
+              />
+            ) : (
+              <img src={imageUri} alt={slide.title} style={webSideImageStyle} />
+            )
+          ) : isVideo && imageUri ? (
+            <SlideVideo
+              uri={imageUri}
+              isActive={isActive}
+              style={styles.image}
+              contentFit="cover"
+            />
           ) : (
             <ExpoImage source={slide.image} style={styles.image} contentFit="cover" />
           )

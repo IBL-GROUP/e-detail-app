@@ -56,7 +56,8 @@ export interface CallTrackingInput {
   feedback?: string;
   feedback_comment?: string;
   call_type?: string; // 'planned' | 'unplanned'
-  institution_call_type?: string; // 'walking' | 'group'
+  // 'chamber' | 'parking' | 'group' | 'join' — see planned-calls/callTypes.
+  institution_call_type?: string;
   call_outcome?: string;
   /** Why the rep cancelled — set when call_outcome is 'cancelled'. */
   cancel_reason?: string;
@@ -369,7 +370,7 @@ export interface DoctorCallRecord {
 
 export interface DoctorCallSummary {
   totalCalls: number;
-  byKind: { chamber: number; group: number; parking: number };
+  byKind: { chamber: number; group: number; parking: number; join: number };
   durationSeconds: number;
   slidesShown: number;
   slidesTotal: number;

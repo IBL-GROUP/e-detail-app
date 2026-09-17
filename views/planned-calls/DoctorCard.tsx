@@ -32,6 +32,7 @@ export interface Doctor {
   visitsChamber?: number;
   visitsGroup?: number;
   visitsParking?: number;
+  visitsJoin?: number;
   /** doctors.pmdc registration number. */
   pmdc?: string;
   scheduledTime?: string;
@@ -109,6 +110,7 @@ export function DoctorCard({
         visitsChamber: String(doctor.visitsChamber ?? 0),
         visitsGroup: String(doctor.visitsGroup ?? 0),
         visitsParking: String(doctor.visitsParking ?? 0),
+        visitsJoin: String(doctor.visitsJoin ?? 0),
       },
     });
   };

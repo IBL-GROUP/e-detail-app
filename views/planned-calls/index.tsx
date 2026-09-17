@@ -175,6 +175,7 @@ export default function PlannedCalls() {
         chamber: doctor.visitsChamber ?? 0,
         group: doctor.visitsGroup ?? 0,
         parking: doctor.visitsParking ?? 0,
+        join: doctor.visitsJoin ?? 0,
       };
 
       return (byKind[callKind] ?? 0) > 0;
@@ -292,10 +293,10 @@ export default function PlannedCalls() {
 
   const renderFooter = () => <View style={styles.footerSpacer} />;
 
-  // Group calls replace the doctor listing with their own panel. Chamber and
-  // parking both run the doctor-by-doctor flow below — identical apart from the
-  // kind recorded against the call. The Call Type selector sits above either
-  // view so the rep can switch without leaving the screen.
+  // Group calls replace the doctor listing with their own panel. Chamber,
+  // parking and join all run the doctor-by-doctor flow below — identical apart
+  // from the kind recorded against the call. The Call Type selector sits above
+  // either view so the rep can switch without leaving the screen.
   // A group call is set up through its own panel (doctors are picked at the End
   // of the call, not before it). But its COMPLETED doctors are an ordinary list,
   // so the toggle swaps the panel out for one — otherwise Group was the only

@@ -99,6 +99,7 @@ export function DoctorListCard({ doctor }: DoctorListCardProps) {
         visitsChamber: String(doctor.visitsChamber ?? 0),
         visitsGroup: String(doctor.visitsGroup ?? 0),
         visitsParking: String(doctor.visitsParking ?? 0),
+        visitsJoin: String(doctor.visitsJoin ?? 0),
       },
     });
   };

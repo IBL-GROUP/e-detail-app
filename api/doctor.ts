@@ -38,6 +38,7 @@ export interface DoctorDataRow {
   VisitsChamber?: number | null;
   VisitsGroup?: number | null;
   VisitsParking?: number | null;
+  VisitsJoin?: number | null;
   /** YYYY-MM-DD of the rep's most recent recorded call, null when never called. */
   LastVisit?: string | null;
 }

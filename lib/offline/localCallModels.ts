@@ -11,6 +11,7 @@ import type {
   MonthlyCallTotals,
 } from '@/api/calls';
 import type { DoctorDataRow } from '@/api/doctor';
+import { tallyKeyForStoredKind } from '@/views/planned-calls/callTypes';
 import type { LocalCall } from './callLedger';
 
 /**
@@ -166,7 +167,7 @@ export function mergeDoctorSummary(
 
   const base: DoctorCallSummary = server?.summary ?? {
     totalCalls: 0,
-    byKind: { chamber: 0, group: 0, parking: 0 },
+    byKind: { chamber: 0, group: 0, parking: 0, join: 0 },
     durationSeconds: 0,
     slidesShown: 0,
     slidesTotal: 0,
@@ -187,10 +188,8 @@ export function mergeDoctorSummary(
   let lastVisit = base.lastVisit ?? null;
 
   for (const call of extra) {
-    const kindKey = String(call.institution_call_type ?? '').toLowerCase();
-    if (kindKey === 'chamber' || kindKey === 'group' || kindKey === 'parking') {
-      byKind[kindKey] += 1;
-    }
+    const kindKey = tallyKeyForStoredKind(call.institution_call_type);
+    if (kindKey) byKind[kindKey] += 1;
 
     durationSeconds += Number(call.total_call_time_seconds) || 0;
     slidesShown += Number(call.shown_slides_count) || 0;
@@ -255,6 +254,7 @@ export function mergeDoctorRows(
     chamber: number;
     group: number;
     parking: number;
+    join: number;
     lastVisit: string;
   }
   const byDoctor = new Map<string, Tally>();
@@ -268,14 +268,13 @@ export function mergeDoctorRows(
       chamber: 0,
       group: 0,
       parking: 0,
+      join: 0,
       lastVisit: '',
     };
     tally.calls += 1;
 
-    const kind = String(call.institution_call_type ?? '').toLowerCase();
-    if (kind === 'chamber' || kind === 'group' || kind === 'parking') {
-      tally[kind] += 1;
-    }
+    const kind = tallyKeyForStoredKind(call.institution_call_type);
+    if (kind) tally[kind] += 1;
 
     const date = isoDate(callDate(call));
     if (date > tally.lastVisit) tally.lastVisit = date;
@@ -305,6 +304,7 @@ export function mergeDoctorRows(
       VisitsChamber: (row.VisitsChamber ?? 0) + tally.chamber,
       VisitsGroup: (row.VisitsGroup ?? 0) + tally.group,
       VisitsParking: (row.VisitsParking ?? 0) + tally.parking,
+      VisitsJoin: (row.VisitsJoin ?? 0) + tally.join,
       LastVisit:
         !row.LastVisit || tally.lastVisit > row.LastVisit
           ? tally.lastVisit

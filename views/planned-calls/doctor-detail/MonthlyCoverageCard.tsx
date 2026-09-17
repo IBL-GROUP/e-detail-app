@@ -10,6 +10,7 @@ interface MonthlyCoverageCardProps {
   chamber: number;
   group: number;
   parking: number;
+  join: number;
 }
 
 /**
@@ -23,8 +24,9 @@ export function MonthlyCoverageCard({
   chamber,
   group,
   parking,
+  join,
 }: MonthlyCoverageCardProps) {
-  const total = chamber + group + parking;
+  const total = chamber + group + parking + join;
 
   // Nothing to report: no quota to track and no calls made.
   if (!maxVisits && total === 0) return null;

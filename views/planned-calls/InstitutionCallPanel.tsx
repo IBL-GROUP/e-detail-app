@@ -10,7 +10,8 @@ import { ArrivedButton } from './doctor-detail/ArrivedButton';
 import { CancelCallButton } from './doctor-detail/CancelCallButton';
 import { CancelCallModal } from './doctor-detail/CancelCallModal';
 import { StartCallButton } from './doctor-detail/StartCallButton';
-import { recordCancelledCall } from './recordCancelledCall';
+import { ABANDONED_CANCEL_REASON, recordCancelledCall } from './recordCancelledCall';
+import type { ArrivalCapture } from '@/lib/location/captureArrival';
 
 /**
  * Group calls: several doctors at once, picked at the End of the call, with
@@ -19,7 +20,6 @@ import { recordCancelledCall } from './recordCancelledCall';
  */
 export function InstitutionCallPanel() {
   const { user } = useAuth();
-  const { arrived, arrival, toggleArrived, reset } = useArrival();
   const [isCancelVisible, setIsCancelVisible] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
 
@@ -43,8 +43,41 @@ export function InstitutionCallPanel() {
   // panel only needs a specialty before Arrive.
   const readyToArrive = hasSpecialty;
 
+  /**
+   * Everything a cancelled group row carries, whatever cancelled it. Shared by
+   * the rep's own cancellation and by the walk-away below, so the two rows
+   * differ only in their reason.
+   */
+  const buildCancelDetails = (captured: ArrivalCapture | null) => ({
+    tsoid: user?.mieId ? String(user.mieId) : '',
+    // No doctor yet — a group call picks its attendees at the End.
+    doctor_specialty: selectedSpecialty?.specialty_name,
+    latitude: captured?.latitude,
+    longitude: captured?.longitude,
+    arrived_location: captured?.arrivedLocation,
+    arrived_time: captured?.arrivedTime,
+    call_type: 'planned' as const,
+    institution_call_type: 'group' as const,
+    created_by: Number(user?.userId) || undefined,
+  });
+
+  /**
+   * The rep marked Arrived for a group call and then left the tab without
+   * starting or cancelling it — recorded so the arrival is not lost. The row
+   * carries the chosen specialty, the same as a cancelled group call does.
+   */
+  const { arrived, arrival, toggleArrived, reset, consume } = useArrival({
+    onAbandon: (captured) => {
+      const details = buildCancelDetails(captured);
+      if (!details.tsoid) return;
+      void recordCancelledCall(ABANDONED_CANCEL_REASON, details);
+    },
+  });
+
   // Changing the specialty invalidates the current arrival (a fresh vicinity
   // check belongs to the newly chosen specialty), so reset the Arrived state.
+  // reset() withdraws it silently — picking a different specialty is a
+  // correction on this screen, not the rep walking away from the call.
   const handleSpecialtyChange = (name: string) => {
     if (name === selectedSpecialtyName) return;
     setSelectedSpecialtyName(name);
@@ -57,26 +90,15 @@ export function InstitutionCallPanel() {
    * chosen specialty instead of a doctor.
    */
   const handleConfirmCancel = async (reason: string) => {
-    const tsoid = user?.mieId ? String(user.mieId) : '';
-    if (!tsoid) {
+    const details = buildCancelDetails(arrival);
+    if (!details.tsoid) {
       Alert.alert('Cannot cancel', 'Your rep profile is missing. Please sign in again.');
       return;
     }
 
     setIsCancelling(true);
     try {
-      await recordCancelledCall(reason, {
-        tsoid,
-        // No doctor yet — a group call picks its attendees at the End.
-        doctor_specialty: selectedSpecialty?.specialty_name,
-        latitude: arrival?.latitude,
-        longitude: arrival?.longitude,
-        arrived_location: arrival?.arrivedLocation,
-        arrived_time: arrival?.arrivedTime,
-        call_type: 'planned',
-        institution_call_type: 'group',
-        created_by: Number(user?.userId) || undefined,
-      });
+      await recordCancelledCall(reason, details);
     } finally {
       setIsCancelling(false);
       setIsCancelVisible(false);
@@ -85,6 +107,9 @@ export function InstitutionCallPanel() {
   };
 
   const handleStartCall = () => {
+    // The arrival is now this call's, so leaving this tab must NOT report it
+    // as a walk-away.
+    consume();
     router.push({
       pathname: '/call/[id]',
       params: {

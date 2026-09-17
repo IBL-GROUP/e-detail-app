@@ -16,7 +16,7 @@ import { Colors } from '@/constants/theme';
 interface MonthlyCallSummaryProps {
   mieId?: string;
   doctorId?: string;
-  /** Narrows the report to one call kind (chamber / group / walking). */
+  /** Narrows the report to one call kind (chamber / group / walking / join). */
   kind?: string;
 }
 
@@ -24,6 +24,9 @@ const KINDS = [
   { key: 'chamber', label: 'Chamber', icon: 'person-outline' },
   { key: 'group', label: 'Group', icon: 'people-outline' },
   { key: 'parking', label: 'Walking', icon: 'walk-outline' },
+  // Group already holds the two-person glyph in this list, so Join takes the
+  // add-a-person one rather than repeating it two rows down.
+  { key: 'join', label: 'Join Call', icon: 'person-add-outline' },
 ] as const;
 
 function formatDuration(seconds: number) {

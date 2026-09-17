@@ -32,6 +32,7 @@ export default function DoctorDetailScreen() {
     visitsChamber?: string;
     visitsGroup?: string;
     visitsParking?: string;
+    visitsJoin?: string;
   }>();
 
   const getParam = (value: string | string[] | undefined) =>
@@ -69,6 +70,7 @@ export default function DoctorDetailScreen() {
     visitsChamber: Number(getParam(params.visitsChamber)) || 0,
     visitsGroup: Number(getParam(params.visitsGroup)) || 0,
     visitsParking: Number(getParam(params.visitsParking)) || 0,
+    visitsJoin: Number(getParam(params.visitsJoin)) || 0,
     history: [],
   };
 
@@ -90,7 +92,8 @@ export default function DoctorDetailScreen() {
       doctor={doctor}
       callType={normalizedCallType}
       completed={quotaMet}
-      // Chamber or parking — carried through so the call is marked correctly.
+      // Chamber, parking or join — carried through so the call is marked
+      // correctly. A group call never reaches this screen.
       callKind={getParam(params.callKind) as CallKind | undefined}
       // Opened from the Doctor List (a reference view) — no call actions.
       viewOnly={getParam(params.viewOnly) === '1'}

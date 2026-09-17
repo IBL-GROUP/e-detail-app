@@ -8,7 +8,8 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Alert, ScrollView, StyleSheet, View } from 'react-native';
 import { CallType, type CallKind } from '../callTypes';
 import { DASH } from '../mapDoctor';
-import { recordCancelledCall } from '../recordCancelledCall';
+import { ABANDONED_CANCEL_REASON, recordCancelledCall } from '../recordCancelledCall';
+import type { ArrivalCapture } from '@/lib/location/captureArrival';
 // import { AddTokenButton } from './AddTokenButton'; // hidden for now
 import { ArrivedButton } from './ArrivedButton';
 import { CallCompletedCard } from './CallCompletedCard';
@@ -49,6 +50,7 @@ export interface DoctorDetailData {
   visitsChamber?: number;
   visitsGroup?: number;
   visitsParking?: number;
+  visitsJoin?: number;
   history: HistoryItem[];
   plannedCalls?: PlannedCallItem[];
 }
@@ -63,7 +65,7 @@ interface DoctorDetailProps {
   doctor: DoctorDetailData;
   completed?: boolean;
   callType?: CallType;
-  /** Chamber or parking — recorded against the call when it starts. */
+  /** Chamber, parking or join — recorded against the call when it starts. */
   callKind?: CallKind;
   /**
    * Reference mode — the record without the call actions. Set when the screen is
@@ -80,10 +82,55 @@ export default function DoctorDetail({
   viewOnly = false,
 }: DoctorDetailProps) {
   const { user } = useAuth();
-  const { arrived, arrival, toggleArrived, reset } = useArrival();
   const queryClient = useQueryClient();
   const [isCancelVisible, setIsCancelVisible] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+
+  /**
+   * Everything a cancelled row carries about this doctor, whatever cancelled
+   * it. Shared by the rep's own cancellation and by the walk-away below, so the
+   * two rows differ ONLY in their reason — which is what makes them comparable
+   * in reporting.
+   *
+   * Takes the arrival as an argument rather than closing over it: the walk-away
+   * is handed the captured position as the screen leaves, when state is no
+   * longer the thing to read.
+   */
+  const buildCancelDetails = (captured: ArrivalCapture | null) => ({
+    tsoid: user?.mieId ? String(user.mieId) : '',
+    // Synthetic ids (new unplanned doctors) aren't real rows — omit them.
+    doctorid: /^\d+$/.test(doctor.id) ? doctor.id : undefined,
+    doctor_name: doctor.name,
+    doctor_specialty: omitDash(doctor.specialty),
+    pmdc: omitDash(doctor.pmdcNumber),
+    latitude: captured?.latitude,
+    longitude: captured?.longitude,
+    arrived_location: omitDash(doctor.address) || captured?.arrivedLocation || undefined,
+    arrived_time: captured?.arrivedTime,
+    call_type: callType,
+    institution_call_type: callKind,
+    created_by: Number(user?.userId) || undefined,
+  });
+
+  /**
+   * The rep marked Arrived and then left without starting or cancelling.
+   *
+   * Recorded as a cancelled call so the arrival is not simply lost — it is the
+   * one outcome the app had no record of at all. No alert and no navigation:
+   * the screen is already going, and interrupting a rep to tell them off for
+   * leaving would be worse than useless.
+   */
+  const handleAbandon = (captured: ArrivalCapture | null) => {
+    const details = buildCancelDetails(captured);
+    // Without a rep profile there is no tsoid to file it under, and the row
+    // would be rejected by the server anyway.
+    if (!details.tsoid) return;
+    void recordCancelledCall(ABANDONED_CANCEL_REASON, details);
+  };
+
+  const { arrived, arrival, toggleArrived, reset, consume } = useArrival({
+    onAbandon: handleAbandon,
+  });
 
   // Coming back to this doctor (from a call, or from the list after one) must
   // re-read the month's calls: the cached summary was fetched before the call
@@ -123,29 +170,15 @@ export default function DoctorDetail({
    * made with no signal still reaches the server later.
    */
   const handleConfirmCancel = async (reason: string) => {
-    const tsoid = user?.mieId ? String(user.mieId) : '';
-    if (!tsoid) {
+    const details = buildCancelDetails(arrival);
+    if (!details.tsoid) {
       Alert.alert('Cannot cancel', 'Your rep profile is missing. Please sign in again.');
       return;
     }
 
     setIsCancelling(true);
     try {
-      await recordCancelledCall(reason, {
-        tsoid,
-        // Synthetic ids (new unplanned doctors) aren't real rows — omit them.
-        doctorid: /^\d+$/.test(doctor.id) ? doctor.id : undefined,
-        doctor_name: doctor.name,
-        doctor_specialty: omitDash(doctor.specialty),
-        pmdc: omitDash(doctor.pmdcNumber),
-        latitude: arrival?.latitude,
-        longitude: arrival?.longitude,
-        arrived_location: omitDash(doctor.address) || arrival?.arrivedLocation || undefined,
-        arrived_time: arrival?.arrivedTime,
-        call_type: callType,
-        institution_call_type: callKind,
-        created_by: Number(user?.userId) || undefined,
-      });
+      await recordCancelledCall(reason, details);
     } finally {
       setIsCancelling(false);
       setIsCancelVisible(false);
@@ -184,6 +217,7 @@ export default function DoctorDetail({
               chamber={doctor.visitsChamber ?? 0}
               group={doctor.visitsGroup ?? 0}
               parking={doctor.visitsParking ?? 0}
+              join={doctor.visitsJoin ?? 0}
             />
 
             {/* The record itself: every call this month combined — brands,
@@ -209,7 +243,10 @@ export default function DoctorDetail({
             <View style={styles.buttonCellHalf}>
               <StartCallButton
                 enabled={arrived}
-                onPress={() =>
+                onPress={() => {
+                  // The arrival is now this call's, so leaving this screen
+                  // must NOT report it as a walk-away.
+                  consume();
                   router.push({
                     pathname: '/call/[id]',
                     params: {
@@ -224,8 +261,8 @@ export default function DoctorDetail({
                       arrivedTime: arrival?.arrivedTime,
                       arrivedLocation: arrival?.arrivedLocation,
                     },
-                  })
-                }
+                  });
+                }}
               />
             </View>
             <View style={styles.buttonCellHalf}>

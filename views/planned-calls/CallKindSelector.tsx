@@ -9,7 +9,9 @@ import { CALL_KIND_LABELS, type CallKind } from './callTypes';
  *
  * Ionicons has no three-person icon — `people-outline` is two, which read as a
  * pair rather than a group beside the single-person Chamber icon. Material's
- * `account-group-outline` is the three-person one, so Group borrows it.
+ * `account-group-outline` is the three-person one, so Group borrows it — and
+ * the two-person Ionicon goes to Join Call, which IS a pair: the rep with
+ * someone sitting in alongside them.
  */
 type KindIcon =
   | { family: 'ion'; name: keyof typeof Ionicons.glyphMap }
@@ -37,6 +39,12 @@ const CALL_KINDS: {
     // parking outside.
     icon: { family: 'ion', name: 'walk-outline' },
   },
+  {
+    key: 'join',
+    label: CALL_KIND_LABELS.join,
+    // Two people: the rep and whoever is sitting in with them.
+    icon: { family: 'ion', name: 'people-outline' },
+  },
 ];
 
 interface CallKindSelectorProps {
@@ -46,8 +54,8 @@ interface CallKindSelectorProps {
 }
 
 /**
- * Chamber / Group / Walking. Shown for both territory and institution modes —
- * a rep can make any of the three from either.
+ * Chamber / Group / Walking / Join Call. Shown for both territory and
+ * institution modes — a rep can make any of them from either.
  */
 export function CallKindSelector({ value, onChange, style }: CallKindSelectorProps) {
   return (
@@ -115,7 +123,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     gap: 10,
   },
-  // Icon over label, so three fit across a narrow phone without truncating.
+  // Icon over label, so all four sit on ONE row without truncating. The gap
+  // between tiles is the only fixed width here, so each takes an equal share of
+  // whatever is left.
   segmentButton: {
     flex: 1,
     minHeight: 68,
@@ -136,8 +146,12 @@ const styles = StyleSheet.create({
   },
   segmentText: {
     color: Colors.primary,
-    fontSize: 14,
+    // A point down from 14: four tiles across a narrow phone leave "Join Call"
+    // about 80px, and at 14 it was close enough to the edge to wrap on the
+    // smallest screens — which made one tile taller than the other three.
+    fontSize: 13,
     fontWeight: '800',
+    textAlign: 'center',
   },
   segmentTextActive: {
     color: Colors.textOnDark,
