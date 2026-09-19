@@ -91,7 +91,14 @@ export async function runSync({
       doctorId,
       data: rows,
     };
-    queryClient.setQueryData(forcingContentKey(teamId, doctorId), response);
+    // mieId must be in this key, and must match what the call screen asks for:
+    // it is part of the live query key now, so seeding without it would file the
+    // offline deck under a key nothing ever reads — leaving a rep with no slides
+    // the moment they lose signal.
+    queryClient.setQueryData(
+      forcingContentKey(teamId, doctorId, undefined, mieId),
+      response,
+    );
     imageUrls.push(...forcingImageUrls(response));
   }
 

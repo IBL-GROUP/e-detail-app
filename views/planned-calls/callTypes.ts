@@ -66,5 +66,5 @@ export const CALL_KIND_LABELS: Record<CallKind, string> = {
   chamber: "Chamber",
   parking: "Walking",
   group: "Group",
-  join: "Join Call",
+  join: "Joint Call",
 };

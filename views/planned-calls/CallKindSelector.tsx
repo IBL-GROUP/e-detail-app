@@ -10,14 +10,24 @@ import { CALL_KIND_LABELS, type CallKind } from './callTypes';
  * Ionicons has no three-person icon — `people-outline` is two, which read as a
  * pair rather than a group beside the single-person Chamber icon. Material's
  * `account-group-outline` is the three-person one, so Group borrows it — and
- * the two-person Ionicon goes to Join Call, which IS a pair: the rep with
+ * the two-person Ionicon goes to Joint Call, which IS a pair: the rep with
  * someone sitting in alongside them.
  */
 type KindIcon =
   | { family: 'ion'; name: keyof typeof Ionicons.glyphMap }
   | { family: 'mci'; name: keyof typeof MaterialCommunityIcons.glyphMap };
 
-const CALL_KINDS: {
+/**
+ * TEMPORARY: call types hidden from the picker.
+ *
+ * Only hides the TILE. The kind itself is untouched — `CallKind` still carries
+ * it, CALL_KIND_LABELS still names it, calls already recorded under it still
+ * read back and still report. Reps simply cannot start a NEW one until this
+ * list is emptied again, which is the one line it takes to restore.
+ */
+const HIDDEN_KINDS: readonly CallKind[] = ['join'];
+
+const ALL_CALL_KINDS: {
   key: CallKind;
   label: string;
   icon: KindIcon;
@@ -47,6 +57,10 @@ const CALL_KINDS: {
   },
 ];
 
+const CALL_KINDS = ALL_CALL_KINDS.filter(
+  (kind) => !HIDDEN_KINDS.includes(kind.key),
+);
+
 interface CallKindSelectorProps {
   value: CallKind;
   onChange: (kind: CallKind) => void;
@@ -54,7 +68,7 @@ interface CallKindSelectorProps {
 }
 
 /**
- * Chamber / Group / Walking / Join Call. Shown for both territory and
+ * Chamber / Group / Walking / Joint Call. Shown for both territory and
  * institution modes — a rep can make any of them from either.
  */
 export function CallKindSelector({ value, onChange, style }: CallKindSelectorProps) {
@@ -146,10 +160,14 @@ const styles = StyleSheet.create({
   },
   segmentText: {
     color: Colors.primary,
-    // A point down from 14: four tiles across a narrow phone leave "Join Call"
-    // about 80px, and at 14 it was close enough to the edge to wrap on the
-    // smallest screens — which made one tile taller than the other three.
-    fontSize: 13,
+    // Two points down from 14, sized for the longest label.
+    //
+    // With four tiles on a 375px phone each gets about 70px of usable width,
+    // and "Joint Call" needs roughly 71px at 13 — it wrapped to two lines on
+    // anything narrower. Joint Call is hidden at the moment so the three
+    // remaining labels have room at any of these sizes; this stays at 12 so
+    // nothing has to be re-tuned when it comes back.
+    fontSize: 12,
     fontWeight: '800',
     textAlign: 'center',
   },

@@ -31,6 +31,14 @@ interface ForcingContentParams {
   doctorId?: string;
   // Institution calls resolve forcing by a chosen specialty instead of a doctor.
   specialtyId?: number;
+  /**
+   * The calling rep. Only used on the doctor path, to pick WHICH specialty a
+   * doctor carrying several resolves to — the same one the Doctor List shows
+   * against that doctor for this rep. Without it the server still returns one
+   * coherent specialty's deck, just resolved across reps rather than for this
+   * one.
+   */
+  mieId?: string;
 }
 
 export interface Specialty {
@@ -215,24 +223,31 @@ export const forcingContentKey = (
   teamId?: number,
   doctorId?: string,
   specialtyId?: number,
+  mieId?: string,
 ) =>
   [
     'forcing-content',
     teamId ?? 'no-team',
     doctorId ?? 'no-doctor',
     specialtyId ?? 'no-specialty',
+    // In the key because it changes the deck: two reps can see the same doctor
+    // under different specialties, so a cache shared between them would serve
+    // one of them the other's brands.
+    mieId ?? 'no-mie',
   ] as const;
 
 export const getForcingContent = async ({
   teamId,
   doctorId,
   specialtyId,
+  mieId,
 }: ForcingContentParams): Promise<ForcingContentResponse> => {
   return axios.get(ApiEndpoints.forcingContent, {
     params: {
       teamId,
       doctorId,
       specialtyId,
+      mieId,
     },
   }) as unknown as Promise<ForcingContentResponse>;
 };
@@ -298,10 +313,15 @@ function sortForcingRows(rows: ForcingContentRow[]) {
   });
 }
 
-export const useForcingSlides = ({ teamId, doctorId, specialtyId }: ForcingContentParams) => {
+export const useForcingSlides = ({
+  teamId,
+  doctorId,
+  specialtyId,
+  mieId,
+}: ForcingContentParams) => {
   return useQuery({
-    queryKey: forcingContentKey(teamId, doctorId, specialtyId),
-    queryFn: () => getForcingContent({ teamId, doctorId, specialtyId }),
+    queryKey: forcingContentKey(teamId, doctorId, specialtyId, mieId),
+    queryFn: () => getForcingContent({ teamId, doctorId, specialtyId, mieId }),
     enabled: Boolean(teamId && (doctorId || specialtyId)),
     staleTime: 5 * 60 * 1000,
     select: (response): DoctorCallSlide[] =>

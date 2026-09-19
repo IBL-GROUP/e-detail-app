@@ -187,6 +187,10 @@ export default function CallScreen({
     teamId,
     doctorId: forcingDoctorId,
     specialtyId: forcingSpecialtyId,
+    // Picks WHICH specialty a doctor carrying several resolves to — the one
+    // this rep sees on the doctor's card. Ignored on the institution path,
+    // where the rep chose the specialty outright.
+    mieId: user?.mieId ? String(user.mieId) : undefined,
   });
   // The team's SKUs, for the "Samples Provided" picker.
   const sampleOptions = useTeamSkus(teamId).data ?? [];

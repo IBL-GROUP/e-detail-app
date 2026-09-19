@@ -26,7 +26,7 @@ const KINDS = [
   { key: 'parking', label: 'Walking', icon: 'walk-outline' },
   // Group already holds the two-person glyph in this list, so Join takes the
   // add-a-person one rather than repeating it two rows down.
-  { key: 'join', label: 'Join Call', icon: 'person-add-outline' },
+  { key: 'join', label: 'Joint Call', icon: 'person-add-outline' },
 ] as const;
 
 function formatDuration(seconds: number) {
