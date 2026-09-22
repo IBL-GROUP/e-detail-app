@@ -1,21 +1,20 @@
 {
-    "build":  {
-                  "development":  {
-                                      "developmentClient":  true,
-                                      "distribution":  "internal"
-                                  },
-                  "preview":  {
-                                  "distribution":  "internal",
-                                  "android":  {
-                                                  "buildType":  "apk"
-                                              },
-                                  "env":  {
-                                              "EXPO_PUBLIC_API_BASE_URL":  "http://208.110.83.26:3017/api"
-                                          },
-                                  "autoIncrement":  true
-                              },
-                  "production":  {
-
-                                 }
-              }
+  "build": {
+    "development": {
+      "developmentClient": true,
+      "distribution": "internal"
+    },
+    "preview": {
+      "distribution": "internal",
+      "android": {
+        "buildType": "apk"
+      },
+      "env": {
+        "EXPO_PUBLIC_API_BASE_URL": "http://208.110.83.26:3017/api",
+        "EXPO_PUBLIC_BUILD_ENV": "sandbox"
+      },
+      "autoIncrement": true
+    },
+    "production": {}
+  }
 }
