@@ -4,7 +4,7 @@
       "developmentClient": true,
       "distribution": "internal"
     },
-    "preview": {
+    "sandbox": {
       "distribution": "internal",
       "android": {
         "buildType": "apk"
