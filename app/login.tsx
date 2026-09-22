@@ -97,21 +97,13 @@ export default function LoginScreen() {
           */}
           <View style={styles.column}>
             <View style={styles.brand}>
-              {/* Tinted, not solid — gives the wordmark something to sit under
-                  in what was an empty band, without a block of colour. The
-                  OneForce mark inside it carries its own padding, so it is
-                  drawn at the tile's full size. */}
-              <View style={styles.brandMark}>
-                <Image
-                  source={require('@/assets/logo/oneforce.svg')}
-                  style={styles.brandLogo}
-                  contentFit="contain"
-                  accessibilityLabel="OneForce logo"
-                />
-              </View>
+              <Image
+                source={require('@/assets/logo/OneForce_logo.svg')}
+                style={styles.brandLogo}
+                contentFit="contain"
+                accessibilityLabel="OneForce"
+              />
 
-              {/* <Text style={styles.heroEyebrow}>Searle E-Detailing</Text> */}
-              <Text style={styles.brandTitle}>OneForce</Text>
               <Text style={styles.brandSubtitle}>Sign in to access.</Text>
             </View>
 
@@ -287,28 +279,10 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 22,
   },
-  brandMark: {
-    width: 64,
-    height: 64,
-    borderRadius: 17,
-    alignItems: 'center',
-    justifyContent: 'center',
-    backgroundColor: '#E3EDF9',
-    borderWidth: 1,
-    borderColor: '#CEDFF1',
-    marginBottom: 16,
-  },
   brandLogo: {
-    width: 60,
-    height: 60,
-  },
-  brandTitle: {
-    color: Colors.secondary,
-    fontSize: 30,
-    lineHeight: 36,
-    fontWeight: '800',
-    letterSpacing: -0.4,
-    textAlign: 'center',
+    width: 216,
+    aspectRatio: 994 / 523,
+    marginBottom: 10,
   },
   brandSubtitle: {
     color: Colors.textMuted,
