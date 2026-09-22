@@ -41,11 +41,6 @@ function AuthGate() {
 
     if (!isAuthenticated && !inLoginRoute) {
       router.replace('/login');
-      return;
-    }
-
-    if (isAuthenticated && inLoginRoute) {
-      router.replace('/(tabs)/analytics');
     }
   }, [isAuthenticated, isHydrated, navigationState?.key, router, segments]);
 

@@ -1,6 +1,7 @@
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/providers/AuthProvider';
 import { Ionicons } from '@expo/vector-icons';
+import { Image } from 'expo-image';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 interface AppHeaderProps {
@@ -44,6 +45,13 @@ export function AppHeader({
             <Ionicons name="chevron-back" size={20} color={Colors.primary} />
           </Pressable>
         ) : null}
+
+        <Image
+          source={require('@/assets/logo/OneForce_emblem.svg')}
+          style={styles.logo}
+          contentFit="contain"
+          accessibilityLabel="OneForce"
+        />
 
         <View style={styles.titleBlock}>
           <Text style={styles.greeting}>
@@ -93,6 +101,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 10,
+  },
+  logo: {
+    width: 32,
+    aspectRatio: 285 / 274,
+    marginRight: 10,
   },
   titleBlock: {
     flex: 1,
