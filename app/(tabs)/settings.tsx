@@ -4,12 +4,22 @@ import { Colors } from '@/constants/theme';
 import { ROLE_LABELS, useAuth } from '@/providers/AuthProvider';
 import { useSync } from '@/providers/SyncProvider';
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import { useState } from 'react';
 import { Platform, Pressable, StyleSheet, Switch, Text, TextInput, useWindowDimensions, View, type ViewStyle } from 'react-native';
 
 // react-native-web supports `position: sticky`, but RN's ViewStyle type doesn't
 // list it — cast to keep the account card pinned while the page scrolls (web).
 const STICKY_SIDE_COLUMN = { position: 'sticky', top: 16 } as unknown as ViewStyle;
+
+/**
+ * The release people actually see, e.g. "v1.0.1".
+ *
+ * Deliberately the human version rather than the Android versionCode: the code
+ * only counts builds and means nothing to a rep reading it out over the phone.
+ * Read from the running binary, so it cannot drift from what was installed.
+ */
+const APP_VERSION = `v${Constants.expoConfig?.version ?? '—'}`;
 
 // Security Settings (2FA / Biometric / Session Timeout) are placeholder toggles
 // that don't do anything yet — hidden for now. Flip to true when they're wired.
@@ -303,6 +313,8 @@ export default function SettingsScreen() {
               />
             </SettingsCard>
           ) : null}
+
+          <Text style={styles.appVersion}>{APP_VERSION}</Text>
         </View>
       </View>
     </ScreenLayout>
@@ -312,6 +324,13 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   content: {
     gap: 18,
+  },
+  appVersion: {
+    textAlign: 'center',
+    fontSize: 12,
+    color: Colors.textMuted,
+    paddingTop: 4,
+    paddingBottom: 12,
   },
   grid: {
     gap: 16,
