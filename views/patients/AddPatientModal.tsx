@@ -12,6 +12,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useKeyboardAwareScroll, useKeyboardHeight } from '@/hooks/use-keyboard';
 import { Ionicons } from '@expo/vector-icons';
 
 import { AppBottomSheetSelect } from '@/components/ui/AppBottomSheetSelect';
@@ -123,6 +124,10 @@ export function AddPatientModal({
 }: AddPatientModalProps) {
   const { height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  // The Modal has its own window on Android, which adjustResize does not
+  // reach — the sheet has to give up the keyboard's height itself.
+  const keyboardHeight = useKeyboardHeight();
+  const { scrollRef, scrollProps } = useKeyboardAwareScroll();
 
   const [patientName, setPatientName] = useState('');
   const [contactNumber, setContactNumber] = useState('');
@@ -367,7 +372,7 @@ export function AddPatientModal({
             },
           ]}
         >
-          <View style={[styles.sheet, { maxHeight: height * 0.86 }]}>
+          <View style={[styles.sheet, { maxHeight: height * 0.86 - keyboardHeight }]}>
             <View style={styles.header}>
               <Text style={styles.title}>{editing ? 'Edit Patient' : 'Add Patient'}</Text>
               <Pressable onPress={handleCancel} hitSlop={10}>
@@ -376,9 +381,10 @@ export function AddPatientModal({
             </View>
 
             <ScrollView
+              ref={scrollRef}
               contentContainerStyle={styles.content}
               showsVerticalScrollIndicator={false}
-              keyboardShouldPersistTaps="handled"
+              {...scrollProps}
             >
               <Field label="Patient Name" required>
                 <TextInput

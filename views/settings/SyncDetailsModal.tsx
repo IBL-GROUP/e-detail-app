@@ -188,6 +188,17 @@ export function SyncDetailsModal({ visible, onClose, backlog }: SyncDetailsModal
       navigationBarTranslucent
     >
       <View style={[styles.backdrop, isWide && styles.backdropWide]}>
+        {/* Tap-outside-to-close. A sibling UNDER the sheet rather than a
+            Pressable wrapping it, so a tap on the card never has to be stopped
+            from bubbling out to the dismiss. Only where there is a backdrop to
+            tap: on a phone the sheet is the whole screen. */}
+        {isWide ? (
+          <Pressable
+            style={StyleSheet.absoluteFill}
+            onPress={onClose}
+            accessibilityLabel="Close sync details"
+          />
+        ) : null}
         <View
           style={[
             styles.sheet,

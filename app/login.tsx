@@ -17,10 +17,12 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useKeyboardAwareScroll } from '@/hooks/use-keyboard';
 
 export default function LoginScreen() {
   const { isAuthenticated, isHydrated, login, isSyncingOfflineUsers } = useAuth();
   const insets = useSafeAreaInsets();
+  const { scrollRef, scrollProps } = useKeyboardAwareScroll();
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -83,12 +85,13 @@ export default function LoginScreen() {
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
         <ScrollView
+          ref={scrollRef}
           contentContainerStyle={[
             styles.scrollContent,
             { paddingTop: insets.top + 32, paddingBottom: insets.bottom + 32 },
           ]}
-          keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          {...scrollProps}
         >
           {/*
             One centred column on a plain background: wordmark, then the form.

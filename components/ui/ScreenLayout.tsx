@@ -1,4 +1,12 @@
-import { ScrollView, StyleSheet, View, ViewStyle } from 'react-native';
+import {
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  View,
+  ViewStyle,
+} from 'react-native';
+import { useKeyboardAwareScroll } from '@/hooks/use-keyboard';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { AppHeader } from '@/components/ui/AppHeader';
@@ -39,6 +47,8 @@ export function ScreenLayout({
   contentStyle,
   showBack = false,
 }: ScreenLayoutProps) {
+  const { scrollRef, scrollProps } = useKeyboardAwareScroll(scrollable);
+
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <AppHeader
@@ -51,13 +61,23 @@ export function ScreenLayout({
         onBack={showBack ? goBack : undefined}
       />
       {scrollable ? (
-        <ScrollView
+        <KeyboardAvoidingView
           style={styles.scroll}
-          contentContainerStyle={[styles.content, contentStyle]}
-          showsVerticalScrollIndicator={false}
+          // iOS does not resize for the keyboard, so the padding is what makes
+          // the room to scroll into. Android already resizes; adding more here
+          // would shrink the page twice.
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         >
-          {children}
-        </ScrollView>
+          <ScrollView
+            ref={scrollRef}
+            style={styles.scroll}
+            contentContainerStyle={[styles.content, contentStyle]}
+            showsVerticalScrollIndicator={false}
+            {...scrollProps}
+          >
+            {children}
+          </ScrollView>
+        </KeyboardAvoidingView>
       ) : (
         <View style={[styles.flat, contentStyle]}>{children}</View>
       )}

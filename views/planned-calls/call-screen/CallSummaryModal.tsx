@@ -5,6 +5,7 @@ import { Colors } from '@/constants/theme';
 import { useMemo, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useKeyboardAwareScroll, useKeyboardHeight } from '@/hooks/use-keyboard';
 
 export interface CallSummaryData {
   // The selected quick-feedback chips (joined).
@@ -82,6 +83,11 @@ export function CallSummaryModal({
 }: CallSummaryModalProps) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+  // A Modal is its own window on Android, so the activity's adjustResize does
+  // not reach it: the sheet keeps its full height and the keyboard just covers
+  // the bottom of it. Take the keyboard out of the sheet's budget by hand.
+  const keyboardHeight = useKeyboardHeight();
+  const { scrollRef, scrollProps } = useKeyboardAwareScroll();
   const isLandscape = width > height;
   const [selectedDoctor, setSelectedDoctor] = useState('');
   const [selectedDoctors, setSelectedDoctors] = useState<string[]>([]);
@@ -173,7 +179,11 @@ export function CallSummaryModal({
             styles.sheet,
             isLandscape && styles.sheetLandscape,
             {
-              maxHeight: height - Math.max(insets.top, isLandscape ? 14 : 22) - Math.max(insets.bottom, isLandscape ? 14 : 22),
+              maxHeight:
+                height -
+                Math.max(insets.top, isLandscape ? 14 : 22) -
+                Math.max(insets.bottom, isLandscape ? 14 : 22) -
+                keyboardHeight,
               maxWidth: isLandscape
                 ? Math.min(width - Math.max(insets.left, 16) - Math.max(insets.right, 16), 820)
                 : Math.min(width - Math.max(insets.left, 22) - Math.max(insets.right, 22), 510),
@@ -186,10 +196,12 @@ export function CallSummaryModal({
           </View>
 
           <ScrollView
+            ref={scrollRef}
             style={styles.scrollArea}
             contentContainerStyle={[styles.content, isLandscape && styles.contentLandscape]}
             showsVerticalScrollIndicator={false}
             bounces={false}
+            {...scrollProps}
           >
             {requireDoctor ? (
               <View style={styles.doctorField}>
