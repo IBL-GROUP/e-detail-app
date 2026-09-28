@@ -29,10 +29,18 @@ import { initCallLedger, markLocalCallSynced, recordLocalCall } from './callLedg
 // Flush at most this many rows per batch request.
 const FLUSH_BATCH_SIZE = 50;
 // A call the server keeps REJECTING (e.g. an invalid/stale doctor id) is dropped
-// after this many attempts so it can't block the queue forever. Transient
-// network failures do NOT count toward this cap — data is only given up when the
-// server explicitly rejected the content.
+// after this many attempts so it can't block the queue forever.
+//
+// ONLY a 4xx counts. Neither a transport failure nor a 5xx does, because
+// neither says anything about this call: when the backend was querying a
+// non-existent table, every upload failed and calls that were perfectly valid
+// were discarded for a fault that was entirely ours.
 const MAX_REJECT_ATTEMPTS = 5;
+
+/** Did the SERVER judge this row wrong, rather than simply failing? */
+function isContentRejection(status?: number) {
+  return typeof status === 'number' && status >= 400 && status < 500;
+}
 
 let isFlushing = false;
 // A flush asked for while one was already running. Dropping it left the call
@@ -133,6 +141,27 @@ export async function enqueueCall(payload: CallTrackingInput): Promise<string> {
 }
 
 /**
+ * Put a call the outbox gave up on back in the queue.
+ *
+ * A dropped call is gone from the queue but NOT from the ledger, which still
+ * holds its full payload — so once whatever the server objected to is fixed,
+ * the call can be sent after all. The server upserts on client_call_id, so
+ * re-queueing can never duplicate it.
+ */
+export async function requeueCall(payload: CallTrackingInput): Promise<void> {
+  if (!payload?.client_call_id) return;
+  // A fresh outbox row id. The old one was deleted, and it is the queue's own
+  // key anyway, not the call's.
+  await dbInsert(
+    Crypto.randomUUID(),
+    JSON.stringify(payload),
+    new Date().toISOString(),
+  );
+  notify();
+  await flushOutbox();
+}
+
+/**
  * Push queued calls to the backend. Safe to call anytime: it does nothing when
  * offline or empty. Successfully synced rows are removed; failures keep their
  * row (attempts incremented) to retry later. A call made WHILE a flush is
@@ -162,10 +191,12 @@ export async function flushOutbox(): Promise<void> {
     try {
       response = await postCallsBatch(items);
     } catch (error: any) {
-      // Network/server failure: bump attempts, keep rows for the next retry.
+      // The request itself failed — offline, timeout, 5xx. Record why, but
+      // leave `attempts` alone: it counts content rejections, and nothing
+      // here was a judgement on these rows.
       const message = String(error?.message ?? 'flush failed').slice(0, 500);
       for (const row of rows) {
-        await dbUpdateFailed(row.client_id, row.attempts + 1, message);
+        await dbUpdateFailed(row.client_id, row.attempts, message);
       }
       notify();
       return;
@@ -185,6 +216,14 @@ export async function flushOutbox(): Promise<void> {
         await dbDelete(result.clientId);
         const clientCallId = callIdByClientId.get(result.clientId);
         if (clientCallId) await markLocalCallSynced(clientCallId);
+      } else if (!isContentRejection(result.status)) {
+        // The server failed on this row rather than refusing it. Keep it
+        // queued indefinitely — it costs nothing but a retry.
+        await dbUpdateFailed(
+          result.clientId,
+          attemptsByClientId.get(result.clientId) ?? 0,
+          String(result.message ?? 'server error').slice(0, 500),
+        );
       } else {
         const nextAttempts = (attemptsByClientId.get(result.clientId) ?? 0) + 1;
         if (nextAttempts >= MAX_REJECT_ATTEMPTS) {

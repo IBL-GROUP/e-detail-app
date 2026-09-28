@@ -15,6 +15,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Colors } from '@/constants/theme';
 import { APP_VERSION_WITH_BUILD } from '@/lib/appVersion';
 import type { BacklogCall, CallSyncState, SyncBacklog } from '@/lib/offline/useSyncBacklog';
+import { requeueCall } from '@/lib/offline/outbox';
 import { useOutbox } from '@/providers/OutboxProvider';
 import { useSync } from '@/providers/SyncProvider';
 import { CALL_KIND_LABELS, tallyKeyForStoredKind } from '@/views/planned-calls/callTypes';
@@ -83,7 +84,15 @@ function StateBadge({ state }: { state: CallSyncState }) {
   );
 }
 
-function CallRow({ entry }: { entry: BacklogCall }) {
+function CallRow({
+  entry,
+  onRetry,
+  retrying,
+}: {
+  entry: BacklogCall;
+  onRetry: (entry: BacklogCall) => void;
+  retrying: boolean;
+}) {
   const { call } = entry;
   const kind = tallyKeyForStoredKind(call.institution_call_type);
   const kindLabel = kind ? CALL_KIND_LABELS[kind] : 'Call';
@@ -131,7 +140,28 @@ function CallRow({ entry }: { entry: BacklogCall }) {
           {when} • {outcome}
         </Text>
       </View>
-      <StateBadge state={entry.state} />
+      {entry.state === 'rejected' ? (
+        <Pressable
+          onPress={() => onRetry(entry)}
+          disabled={retrying}
+          style={({ pressed }) => [
+            styles.retryButton,
+            retrying && styles.retryButtonBusy,
+            pressed && styles.pressed,
+          ]}
+        >
+          {retrying ? (
+            <ActivityIndicator size="small" color={Colors.primary} />
+          ) : (
+            <>
+              <Ionicons name="refresh" size={13} color={Colors.primary} />
+              <Text style={styles.retryText}>Retry</Text>
+            </>
+          )}
+        </Pressable>
+      ) : (
+        <StateBadge state={entry.state} />
+      )}
     </View>
   );
 }
@@ -151,6 +181,7 @@ export function SyncDetailsModal({ visible, onClose, backlog }: SyncDetailsModal
   const { lastSyncedAt, isOnline, status, syncNow } = useSync();
   const { flushNow } = useOutbox();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [retryingId, setRetryingId] = useState<string | null>(null);
 
   const isBusy = isSubmitting || status === 'syncing';
   const canSync = isOnline && !isBusy;
@@ -169,6 +200,20 @@ export function SyncDetailsModal({ visible, onClose, backlog }: SyncDetailsModal
       console.warn('[sync] manual sync failed', error);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  // Re-queues a call the outbox discarded. The ledger still holds it, so the
+  // only thing missing was a queue row — and whatever the server was refusing
+  // may well be fixed by now.
+  const handleRetry = async (entry: BacklogCall) => {
+    setRetryingId(entry.id);
+    try {
+      await requeueCall(entry.call);
+    } catch (error) {
+      console.warn('[sync] retry failed', error);
+    } finally {
+      setRetryingId(null);
     }
   };
 
@@ -280,7 +325,8 @@ export function SyncDetailsModal({ visible, onClose, backlog }: SyncDetailsModal
 
               {rejectedCalls > 0 ? (
                 <Text style={styles.errorText}>
-                  {plural(rejectedCalls, 'call')} rejected by the server and won&apos;t upload.
+                  {plural(rejectedCalls, 'call')} the server refused. Tap Retry below to
+                  send again.
                 </Text>
               ) : null}
 
@@ -323,7 +369,12 @@ export function SyncDetailsModal({ visible, onClose, backlog }: SyncDetailsModal
                 <SectionLabel>{`CALLS WAITING TO SYNC (${unsyncedCalls.length})`}</SectionLabel>
                 <View style={styles.callList}>
                   {unsyncedCalls.map((entry) => (
-                    <CallRow key={entry.id} entry={entry} />
+                    <CallRow
+                      key={entry.id}
+                      entry={entry}
+                      onRetry={(target) => void handleRetry(target)}
+                      retrying={retryingId === entry.id}
+                    />
                   ))}
                 </View>
               </View>
@@ -542,6 +593,26 @@ const styles = StyleSheet.create({
   callMeta: {
     fontSize: 12,
     color: Colors.textMuted,
+  },
+  retryButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 4,
+    minWidth: 74,
+    minHeight: 28,
+    borderRadius: 999,
+    borderWidth: 1,
+    borderColor: Colors.primary,
+    paddingHorizontal: 10,
+  },
+  retryButtonBusy: {
+    opacity: 0.6,
+  },
+  retryText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: Colors.primary,
   },
   badge: {
     flexDirection: 'row',

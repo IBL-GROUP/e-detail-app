@@ -3,7 +3,6 @@ import { ScreenLayout } from '@/components/ui/ScreenLayout';
 import { Colors } from '@/constants/theme';
 import { ROLE_LABELS, useAuth } from '@/providers/AuthProvider';
 import { useSync } from '@/providers/SyncProvider';
-import { APP_VERSION } from '@/lib/appVersion';
 import { useSyncBacklog } from '@/lib/offline/useSyncBacklog';
 import { SyncDetailsModal } from '@/views/settings/SyncDetailsModal';
 import { Ionicons } from '@expo/vector-icons';
@@ -326,7 +325,6 @@ export default function SettingsScreen() {
               </SettingsCard>
             ) : null}
 
-            <Text style={styles.appVersion}>{APP_VERSION}</Text>
           </View>
         </View>
       </ScreenLayout>
@@ -346,13 +344,6 @@ export default function SettingsScreen() {
 const styles = StyleSheet.create({
   content: {
     gap: 18,
-  },
-  appVersion: {
-    textAlign: 'center',
-    fontSize: 12,
-    color: Colors.textMuted,
-    paddingTop: 4,
-    paddingBottom: 12,
   },
   grid: {
     gap: 16,
