@@ -2,7 +2,6 @@ import { useState } from 'react';
 import {
   Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -10,7 +9,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useKeyboardAwareScroll, useKeyboardHeight } from '@/hooks/use-keyboard';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 
 import { AppButton } from '@/components/ui/AppButton';
 import { Colors } from '@/constants/theme';
@@ -51,10 +50,7 @@ export function CancelCallModal({
   onConfirm,
 }: CancelCallModalProps) {
   const insets = useSafeAreaInsets();
-  // The Modal has its own window on Android, which adjustResize does not
-  // reach — the sheet has to give up the keyboard's height itself.
-  const keyboardHeight = useKeyboardHeight();
-  const { scrollRef, scrollProps } = useKeyboardAwareScroll();
+
   const { width, height } = useWindowDimensions();
   const [selectedReason, setSelectedReason] = useState('');
   const [note, setNote] = useState('');
@@ -111,11 +107,7 @@ export function CancelCallModal({
           style={[
             styles.sheet,
             {
-              maxHeight:
-                height -
-                Math.max(insets.top, 22) -
-                Math.max(insets.bottom, 22) -
-                keyboardHeight,
+              maxHeight: height - Math.max(insets.top, 22) - Math.max(insets.bottom, 22),
               maxWidth: Math.min(
                 width - Math.max(insets.left, 22) - Math.max(insets.right, 22),
                 510,
@@ -128,11 +120,11 @@ export function CancelCallModal({
             <Text style={styles.subtitle}>Why are you cancelling this call?</Text>
           </View>
 
-          <ScrollView
-            ref={scrollRef}
+          <KeyboardAwareScrollView
             style={styles.scrollArea}
             contentContainerStyle={styles.content}
-            {...scrollProps}
+            bottomOffset={24}
+            keyboardShouldPersistTaps="handled"
           >
             <Text style={styles.subjectLine}>{subject}</Text>
 
@@ -174,7 +166,7 @@ export function CancelCallModal({
               numberOfLines={3}
               style={styles.noteInput}
             />
-          </ScrollView>
+          </KeyboardAwareScrollView>
 
           <View style={styles.footer}>
             <AppButton

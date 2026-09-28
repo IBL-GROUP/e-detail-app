@@ -1,12 +1,5 @@
-import {
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  StyleSheet,
-  View,
-  ViewStyle,
-} from 'react-native';
-import { useKeyboardAwareScroll } from '@/hooks/use-keyboard';
+import { StyleSheet, View, ViewStyle } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { AppHeader } from '@/components/ui/AppHeader';
@@ -47,8 +40,6 @@ export function ScreenLayout({
   contentStyle,
   showBack = false,
 }: ScreenLayoutProps) {
-  const { scrollRef, scrollProps } = useKeyboardAwareScroll(scrollable);
-
   return (
     <SafeAreaView style={styles.safe} edges={['top']}>
       <AppHeader
@@ -61,23 +52,18 @@ export function ScreenLayout({
         onBack={showBack ? goBack : undefined}
       />
       {scrollable ? (
-        <KeyboardAvoidingView
+        <KeyboardAwareScrollView
           style={styles.scroll}
-          // iOS does not resize for the keyboard, so the padding is what makes
-          // the room to scroll into. Android already resizes; adding more here
-          // would shrink the page twice.
-          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          contentContainerStyle={[styles.content, contentStyle]}
+          showsVerticalScrollIndicator={false}
+          // Gap left between the focused field and the top of the keyboard.
+          bottomOffset={24}
+          // Without this the first tap on a button while the keyboard is up
+          // only dismisses the keyboard, and the button needs tapping twice.
+          keyboardShouldPersistTaps="handled"
         >
-          <ScrollView
-            ref={scrollRef}
-            style={styles.scroll}
-            contentContainerStyle={[styles.content, contentStyle]}
-            showsVerticalScrollIndicator={false}
-            {...scrollProps}
-          >
-            {children}
-          </ScrollView>
-        </KeyboardAvoidingView>
+          {children}
+        </KeyboardAwareScrollView>
       ) : (
         <View style={[styles.flat, contentStyle]}>{children}</View>
       )}

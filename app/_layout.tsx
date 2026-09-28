@@ -6,6 +6,7 @@ import { TamaguiProvider } from '@tamagui/core';
 import { useEffect } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { useFonts } from 'expo-font';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
@@ -92,20 +93,26 @@ export default function RootLayout() {
     // Required for react-native-gesture-handler: without it, the carousel's
     // swipe gestures (call slides and Content Viewing) do nothing on Android.
     <GestureHandlerRootView style={styles.root}>
-      <AppQueryProvider>
-        <AuthProvider>
-          <OutboxProvider>
-            <SyncProvider>
-              <TamaguiProvider config={config} defaultTheme={colorScheme === 'dark' ? 'dark' : 'light'}>
-                <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-                  <AuthGate />
-                  <StatusBar style="auto" />
-                </ThemeProvider>
-              </TamaguiProvider>
-            </SyncProvider>
-          </OutboxProvider>
-        </AuthProvider>
-      </AppQueryProvider>
+      {/* Reads the keyboard inset straight from Android. Edge-to-edge (on by
+          default since SDK 54) makes adjustResize a no-op, so nothing in React
+          Native itself — KeyboardAvoidingView included — sees the keyboard any
+          more, and a Modal never resized for it even before that. */}
+      <KeyboardProvider>
+        <AppQueryProvider>
+          <AuthProvider>
+            <OutboxProvider>
+              <SyncProvider>
+                <TamaguiProvider config={config} defaultTheme={colorScheme === 'dark' ? 'dark' : 'light'}>
+                  <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+                    <AuthGate />
+                    <StatusBar style="auto" />
+                  </ThemeProvider>
+                </TamaguiProvider>
+              </SyncProvider>
+            </OutboxProvider>
+          </AuthProvider>
+        </AppQueryProvider>
+      </KeyboardProvider>
     </GestureHandlerRootView>
   );
 }

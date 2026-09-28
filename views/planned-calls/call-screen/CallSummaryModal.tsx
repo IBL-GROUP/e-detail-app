@@ -3,9 +3,9 @@ import { AppButton } from '@/components/ui/AppButton';
 import { AppMultiSelectSheet, MultiSelectOption } from '@/components/ui/AppMultiSelectSheet';
 import { Colors } from '@/constants/theme';
 import { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Modal, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useKeyboardAwareScroll, useKeyboardHeight } from '@/hooks/use-keyboard';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 
 export interface CallSummaryData {
   // The selected quick-feedback chips (joined).
@@ -83,11 +83,7 @@ export function CallSummaryModal({
 }: CallSummaryModalProps) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
-  // A Modal is its own window on Android, so the activity's adjustResize does
-  // not reach it: the sheet keeps its full height and the keyboard just covers
-  // the bottom of it. Take the keyboard out of the sheet's budget by hand.
-  const keyboardHeight = useKeyboardHeight();
-  const { scrollRef, scrollProps } = useKeyboardAwareScroll();
+
   const isLandscape = width > height;
   const [selectedDoctor, setSelectedDoctor] = useState('');
   const [selectedDoctors, setSelectedDoctors] = useState<string[]>([]);
@@ -179,11 +175,7 @@ export function CallSummaryModal({
             styles.sheet,
             isLandscape && styles.sheetLandscape,
             {
-              maxHeight:
-                height -
-                Math.max(insets.top, isLandscape ? 14 : 22) -
-                Math.max(insets.bottom, isLandscape ? 14 : 22) -
-                keyboardHeight,
+              maxHeight: height - Math.max(insets.top, isLandscape ? 14 : 22) - Math.max(insets.bottom, isLandscape ? 14 : 22),
               maxWidth: isLandscape
                 ? Math.min(width - Math.max(insets.left, 16) - Math.max(insets.right, 16), 820)
                 : Math.min(width - Math.max(insets.left, 22) - Math.max(insets.right, 22), 510),
@@ -195,13 +187,13 @@ export function CallSummaryModal({
             <Text style={styles.subtitle}>Please complete the call report</Text>
           </View>
 
-          <ScrollView
-            ref={scrollRef}
+          <KeyboardAwareScrollView
             style={styles.scrollArea}
             contentContainerStyle={[styles.content, isLandscape && styles.contentLandscape]}
             showsVerticalScrollIndicator={false}
             bounces={false}
-            {...scrollProps}
+            bottomOffset={24}
+            keyboardShouldPersistTaps="handled"
           >
             {requireDoctor ? (
               <View style={styles.doctorField}>
@@ -344,7 +336,7 @@ export function CallSummaryModal({
               multiline
               style={styles.commentInput}
             />
-          </ScrollView>
+          </KeyboardAwareScrollView>
 
           <View style={[styles.actions, isLandscape && styles.actionsLandscape]}>
             <AppButton
