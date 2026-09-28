@@ -90,6 +90,31 @@ export async function getPendingCount(): Promise<number> {
   return dbCount();
 }
 
+// Far above any real backlog; the scan only needs every row's call id.
+const QUEUE_SCAN_LIMIT = 10_000;
+
+/**
+ * client_call_ids that still have a row waiting to upload.
+ *
+ * Per CALL, not per row: a call made offline queues both its 'started' and
+ * 'completed' phases, so the row count reads every such call twice. A call the
+ * ledger holds as unsynced but that is missing from this set was rejected by
+ * the server and dropped — it will never upload.
+ */
+export async function getQueuedCallIds(): Promise<Set<string>> {
+  const rows = await dbGetBatch(QUEUE_SCAN_LIMIT);
+  const ids = new Set<string>();
+  for (const row of rows) {
+    try {
+      const id = (JSON.parse(row.payload) as CallTrackingInput).client_call_id;
+      if (id) ids.add(id);
+    } catch {
+      // an unreadable row can't name its call
+    }
+  }
+  return ids;
+}
+
 /**
  * Queue one completed call. Writes locally, then kicks off a best-effort flush
  * (which is a no-op when offline). Resolves once the row is persisted, so the

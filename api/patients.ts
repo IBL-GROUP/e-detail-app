@@ -90,7 +90,7 @@ const getPatients = async (mieId: string): Promise<PatientLogRow[]> => {
 };
 
 /** This device's recorded patients, kept live as the queue changes. */
-function useLocalPatients(): LocalPatient[] {
+export function useLocalPatients(): LocalPatient[] {
   const [patients, setPatients] = useState<LocalPatient[]>([]);
 
   useEffect(() => {

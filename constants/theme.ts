@@ -15,6 +15,8 @@ export const Colors = {
   successBg: '#DCFCE7',
   danger: '#DC2626',
   dangerBg: '#FEE2E2',
+  warning: '#B45309',
+  warningBg: '#FEF3C7',
 
   // Disabled controls — always neutral gray, never a tint of the enabled
   // colour, so "you can't press this yet" reads at a glance.

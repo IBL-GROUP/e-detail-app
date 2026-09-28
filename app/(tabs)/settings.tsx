@@ -3,23 +3,16 @@ import { ScreenLayout } from '@/components/ui/ScreenLayout';
 import { Colors } from '@/constants/theme';
 import { ROLE_LABELS, useAuth } from '@/providers/AuthProvider';
 import { useSync } from '@/providers/SyncProvider';
+import { APP_VERSION } from '@/lib/appVersion';
+import { useSyncBacklog } from '@/lib/offline/useSyncBacklog';
+import { SyncDetailsModal } from '@/views/settings/SyncDetailsModal';
 import { Ionicons } from '@expo/vector-icons';
-import Constants from 'expo-constants';
 import { useState } from 'react';
 import { Platform, Pressable, StyleSheet, Switch, Text, TextInput, useWindowDimensions, View, type ViewStyle } from 'react-native';
 
 // react-native-web supports `position: sticky`, but RN's ViewStyle type doesn't
 // list it — cast to keep the account card pinned while the page scrolls (web).
 const STICKY_SIDE_COLUMN = { position: 'sticky', top: 16 } as unknown as ViewStyle;
-
-/**
- * The release people actually see, e.g. "v1.0.1".
- *
- * Deliberately the human version rather than the Android versionCode: the code
- * only counts builds and means nothing to a rep reading it out over the phone.
- * Read from the running binary, so it cannot drift from what was installed.
- */
-const APP_VERSION = `v${Constants.expoConfig?.version ?? '—'}`;
 
 // Security Settings (2FA / Biometric / Session Timeout) are placeholder toggles
 // that don't do anything yet — hidden for now. Flip to true when they're wired.
@@ -123,6 +116,8 @@ export default function SettingsScreen() {
   const isWide = width >= 760;
   const { user, logout, changePassword } = useAuth();
   const { lastSyncedAt, isOnline, status, syncNow } = useSync();
+  const backlog = useSyncBacklog(user?.mieId);
+  const [isSyncDetailsVisible, setIsSyncDetailsVisible] = useState(false);
   const [twoFactorEnabled, setTwoFactorEnabled] = useState(false);
   const [biometricEnabled, setBiometricEnabled] = useState(true);
   const [sessionTimeoutEnabled, setSessionTimeoutEnabled] = useState(true);
@@ -174,150 +169,177 @@ export default function SettingsScreen() {
   };
 
   return (
-    <ScreenLayout
-      title="Settings"
-      subtitle="Manage your account and security preferences"
-      contentStyle={styles.content}
-    >
-      <View style={[styles.grid, isWide && styles.gridWide]}>
-        <View
-          style={[
-            styles.sideColumn,
-            isWide && styles.sideColumnWide,
-            isWide && Platform.OS === 'web' && STICKY_SIDE_COLUMN,
-          ]}
-        >
-          <View style={styles.accountCard}>
-            <View style={styles.avatar}>
-              <Ionicons name="person-outline" size={34} color={Colors.primary} />
-            </View>
-            <Text style={styles.accountTitle}>Account Info</Text>
-            <Text style={styles.accountSubtitle}>{user?.name ?? 'Active user session'}</Text>
+    <>
+      <ScreenLayout
+        title="Settings"
+        subtitle="Manage your account and security preferences"
+        contentStyle={styles.content}
+      >
+        <View style={[styles.grid, isWide && styles.gridWide]}>
+          <View
+            style={[
+              styles.sideColumn,
+              isWide && styles.sideColumnWide,
+              isWide && Platform.OS === 'web' && STICKY_SIDE_COLUMN,
+            ]}
+          >
+            <View style={styles.accountCard}>
+              <View style={styles.avatar}>
+                <Ionicons name="person-outline" size={34} color={Colors.primary} />
+              </View>
+              <Text style={styles.accountTitle}>Account Info</Text>
+              <Text style={styles.accountSubtitle}>{user?.name ?? 'Active user session'}</Text>
 
-            <View style={styles.accountMeta}>
-              <View style={styles.accountRow}>
-                <Text style={styles.accountLabel}>Role</Text>
-                <Text style={styles.accountValue}>
-                  {user?.role ? ROLE_LABELS[user.role] : 'Medical Rep'}
-                </Text>
-              </View>
-              <View style={styles.accountRow}>
-                <Text style={styles.accountLabel}>Username</Text>
-                <Text style={styles.accountValue}>{user?.username ?? 'rep'}</Text>
-              </View>
-              {user?.team ? (
+              <View style={styles.accountMeta}>
                 <View style={styles.accountRow}>
-                  <Text style={styles.accountLabel}>Team</Text>
-                  <Text style={styles.accountValue}>{user.team}</Text>
+                  <Text style={styles.accountLabel}>Role</Text>
+                  <Text style={styles.accountValue}>
+                    {user?.role ? ROLE_LABELS[user.role] : 'Medical Rep'}
+                  </Text>
                 </View>
-              ) : null}
-              <AppButton
-                label="Logout"
-                variant="outline"
-                onPress={() => {
-                  void logout();
-                }}
-                style={styles.logoutButton}
-                textStyle={styles.logoutButtonText}
-                icon={<Ionicons name="log-out-outline" size={18} color={Colors.primary} />}
-              />
+                <View style={styles.accountRow}>
+                  <Text style={styles.accountLabel}>Username</Text>
+                  <Text style={styles.accountValue}>{user?.username ?? 'rep'}</Text>
+                </View>
+                {user?.team ? (
+                  <View style={styles.accountRow}>
+                    <Text style={styles.accountLabel}>Team</Text>
+                    <Text style={styles.accountValue}>{user.team}</Text>
+                  </View>
+                ) : null}
+                <AppButton
+                  label="Logout"
+                  variant="outline"
+                  onPress={() => {
+                    void logout();
+                  }}
+                  style={styles.logoutButton}
+                  textStyle={styles.logoutButtonText}
+                  icon={<Ionicons name="log-out-outline" size={18} color={Colors.primary} />}
+                />
+              </View>
             </View>
           </View>
-        </View>
 
-        <View style={[styles.mainColumn, isWide && styles.mainColumnWide]}>
-          <SettingsCard icon="lock-closed-outline" title="Change Password">
-            <PasswordField
-              label="Current Password"
-              placeholder="Enter your current password"
-              icon="key-outline"
-              value={currentPassword}
-              onChangeText={setCurrentPassword}
-            />
-            <PasswordField
-              label="New Password"
-              placeholder="Minimum 6 characters"
-              icon="lock-closed-outline"
-              value={newPassword}
-              onChangeText={setNewPassword}
-            />
-            <PasswordField
-              label="Confirm Password"
-              placeholder="Repeat new password"
-              icon="checkmark-circle-outline"
-              value={confirmPassword}
-              onChangeText={setConfirmPassword}
-            />
-            {pwMessage ? (
-              <Text
-                style={[
-                  styles.pwMessage,
-                  pwMessage.type === 'error' ? styles.pwError : styles.pwSuccess,
-                ]}
-              >
-                {pwMessage.text}
-              </Text>
-            ) : null}
-            <AppButton
-              label={pwSubmitting ? 'Updating…' : 'Update Password'}
-              onPress={() => {
-                void handleUpdatePassword();
-              }}
-              icon={<Ionicons name="arrow-forward" size={18} color={Colors.textOnDark} />}
-              style={styles.updateButton}
-            />
-          </SettingsCard>
-
-          {/* Call Type (Territory / Institution) is hidden for now. The control
-              lives in components/ui/CallModeToggle for when it comes back. */}
-
-          <SettingsCard icon="cloud-offline-outline" title="Offline Data">
-            <View style={styles.securityRow}>
-              <Text style={styles.securityLabel}>Connection</Text>
-              <Text style={styles.accountValue}>
-                {isOnline ? 'Online' : 'Offline'}
-              </Text>
-            </View>
-            <View style={styles.securityRow}>
-              <Text style={styles.securityLabel}>Last synced</Text>
-              <Text style={styles.accountValue}>
-                {formatSyncedAt(lastSyncedAt)}
-              </Text>
-            </View>
-            <AppButton
-              label={status === 'syncing' ? 'Syncing…' : 'Sync now'}
-              onPress={() => void syncNow()}
-              icon={
-                <Ionicons name="sync-outline" size={18} color={Colors.textOnDark} />
-              }
-              style={styles.updateButton}
-            />
-          </SettingsCard>
-
-          {SHOW_SECURITY_SETTINGS ? (
-            <SettingsCard icon="shield-checkmark-outline" title="Security Settings">
-              <SecurityRow
-                label="Two-Factor Authentication"
-                value={twoFactorEnabled}
-                onValueChange={setTwoFactorEnabled}
+          <View style={[styles.mainColumn, isWide && styles.mainColumnWide]}>
+            <SettingsCard icon="lock-closed-outline" title="Change Password">
+              <PasswordField
+                label="Current Password"
+                placeholder="Enter your current password"
+                icon="key-outline"
+                value={currentPassword}
+                onChangeText={setCurrentPassword}
               />
-              <SecurityRow
-                label="Biometric Login"
-                value={biometricEnabled}
-                onValueChange={setBiometricEnabled}
+              <PasswordField
+                label="New Password"
+                placeholder="Minimum 6 characters"
+                icon="lock-closed-outline"
+                value={newPassword}
+                onChangeText={setNewPassword}
               />
-              <SecurityRow
-                label="Session Timeout (15 mins)"
-                value={sessionTimeoutEnabled}
-                onValueChange={setSessionTimeoutEnabled}
+              <PasswordField
+                label="Confirm Password"
+                placeholder="Repeat new password"
+                icon="checkmark-circle-outline"
+                value={confirmPassword}
+                onChangeText={setConfirmPassword}
+              />
+              {pwMessage ? (
+                <Text
+                  style={[
+                    styles.pwMessage,
+                    pwMessage.type === 'error' ? styles.pwError : styles.pwSuccess,
+                  ]}
+                >
+                  {pwMessage.text}
+                </Text>
+              ) : null}
+              <AppButton
+                label={pwSubmitting ? 'Updating…' : 'Update Password'}
+                onPress={() => {
+                  void handleUpdatePassword();
+                }}
+                icon={<Ionicons name="arrow-forward" size={18} color={Colors.textOnDark} />}
+                style={styles.updateButton}
               />
             </SettingsCard>
-          ) : null}
 
-          <Text style={styles.appVersion}>{APP_VERSION}</Text>
+            {/* Call Type (Territory / Institution) is hidden for now. The control
+                lives in components/ui/CallModeToggle for when it comes back. */}
+
+            <SettingsCard icon="cloud-offline-outline" title="Offline Data">
+              <View style={styles.securityRow}>
+                <Text style={styles.securityLabel}>Connection</Text>
+                <Text style={styles.accountValue}>
+                  {isOnline ? 'Online' : 'Offline'}
+                </Text>
+              </View>
+              <View style={styles.securityRow}>
+                <Text style={styles.securityLabel}>Last synced</Text>
+                <Text style={styles.accountValue}>
+                  {formatSyncedAt(lastSyncedAt)}
+                </Text>
+              </View>
+              <View style={styles.syncActions}>
+                <AppButton
+                  label={status === 'syncing' ? 'Syncing…' : 'Sync now'}
+                  onPress={() => void syncNow()}
+                  icon={
+                    <Ionicons name="sync-outline" size={18} color={Colors.textOnDark} />
+                  }
+                  style={styles.syncButton}
+                />
+                <Pressable
+                  onPress={() => setIsSyncDetailsVisible(true)}
+                  style={({ pressed }) => [styles.syncDetailsButton, pressed && styles.pressed]}
+                  accessibilityLabel="Open sync details"
+                >
+                  <Ionicons name="chevron-forward" size={20} color={Colors.primary} />
+                  {backlog.unsyncedTotal > 0 ? (
+                    <View style={styles.syncDetailsBadge}>
+                      <Text style={styles.syncDetailsBadgeText}>
+                        {backlog.unsyncedTotal > 99 ? '99+' : backlog.unsyncedTotal}
+                      </Text>
+                    </View>
+                  ) : null}
+                </Pressable>
+              </View>
+            </SettingsCard>
+
+            {SHOW_SECURITY_SETTINGS ? (
+              <SettingsCard icon="shield-checkmark-outline" title="Security Settings">
+                <SecurityRow
+                  label="Two-Factor Authentication"
+                  value={twoFactorEnabled}
+                  onValueChange={setTwoFactorEnabled}
+                />
+                <SecurityRow
+                  label="Biometric Login"
+                  value={biometricEnabled}
+                  onValueChange={setBiometricEnabled}
+                />
+                <SecurityRow
+                  label="Session Timeout (15 mins)"
+                  value={sessionTimeoutEnabled}
+                  onValueChange={setSessionTimeoutEnabled}
+                />
+              </SettingsCard>
+            ) : null}
+
+            <Text style={styles.appVersion}>{APP_VERSION}</Text>
+          </View>
         </View>
-      </View>
-    </ScreenLayout>
+      </ScreenLayout>
+
+      {/* Outside ScreenLayout: a Modal nested in its ScrollView never
+          presents on Android — every other modal here is a screen-root
+          sibling for the same reason. */}
+      <SyncDetailsModal
+        visible={isSyncDetailsVisible}
+        onClose={() => setIsSyncDetailsVisible(false)}
+        backlog={backlog}
+      />
+    </>
   );
 }
 
@@ -409,6 +431,45 @@ const styles = StyleSheet.create({
     minHeight: 40,
     paddingHorizontal: 18,
     marginTop: 4,
+  },
+  syncActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginTop: 4,
+  },
+  syncButton: {
+    minHeight: 40,
+    paddingHorizontal: 18,
+  },
+  syncDetailsButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: Colors.primary,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  syncDetailsBadge: {
+    position: 'absolute',
+    top: -8,
+    right: -8,
+    minWidth: 18,
+    height: 18,
+    borderRadius: 9,
+    paddingHorizontal: 4,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.warning,
+  },
+  syncDetailsBadgeText: {
+    fontSize: 10,
+    fontWeight: '800',
+    color: Colors.textOnDark,
+  },
+  pressed: {
+    opacity: 0.75,
   },
   pwMessage: {
     fontSize: 13,

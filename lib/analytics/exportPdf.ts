@@ -461,7 +461,9 @@ function buildDoc(data: AnalyticsReportData) {
 /** Generates the analytics PDF and downloads it (web) or saves + shares it (native). */
 export async function exportAnalyticsPdf(data: AnalyticsReportData) {
   const doc = buildDoc(data);
-  const fileName = `analytics-report-${new Date().toISOString().slice(0, 10)}.pdf`;
+  // Local date, not UTC: a report exported after 5am PKT is fine either way, but
+  // one exported just after midnight would otherwise be named with yesterday.
+  const fileName = `analytics-report-${new Date().toLocaleDateString("en-CA")}.pdf`;
 
   if (Platform.OS === "web") {
     // Triggers a normal browser file download — no print dialog.
