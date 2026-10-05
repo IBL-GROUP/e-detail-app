@@ -35,7 +35,11 @@ interface SyncContextValue {
 const SyncContext = createContext<SyncContextValue | undefined>(undefined);
 
 export function SyncProvider({ children }: { children: ReactNode }) {
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated: isSignedIn, isOfflineSession } = useAuth();
+  // Syncing needs a server token. An offline session has none, so every sync
+  // request would only come back 401 — hold off until it upgrades to a real one,
+  // at which point the effects below fire the sync it missed.
+  const isAuthenticated = isSignedIn && !isOfflineSession;
   const [status, setStatus] = useState<SyncStatus>('idle');
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
   const [lastSyncedFor, setLastSyncedFor] = useState<string | null>(null);
@@ -94,7 +98,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     if (runningRef.current) return;
     const mieId = user?.mieId;
     const teamId = user?.teamId;
-    if (!mieId || !teamId) return;
+    if (!mieId || !teamId || !isAuthenticated) return;
 
     runningRef.current = true;
     setStatus('syncing');
@@ -113,7 +117,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       setProgress(null);
       runningRef.current = false;
     }
-  }, [user?.mieId, user?.teamId]);
+  }, [user?.mieId, user?.teamId, isAuthenticated]);
 
   const isStale = isHydrated && lastSyncedFor !== todayWorkday();
   const hasNoData = isHydrated && lastSyncedFor === null;

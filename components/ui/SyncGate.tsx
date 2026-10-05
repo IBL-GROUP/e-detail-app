@@ -1,5 +1,7 @@
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native';
 import type { ReactNode } from 'react';
+import { StatusBar } from 'expo-status-bar';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Colors } from '@/constants/theme';
 import { useAuth } from '@/providers/AuthProvider';
@@ -24,7 +26,8 @@ function formatDate(value: string | null): string {
  * - Otherwise renders the app, with a thin banner when offline / stale / syncing.
  */
 export function SyncGate({ children }: { children: ReactNode }) {
-  const { isAuthenticated } = useAuth();
+  const { isAuthenticated, isOfflineSession, canResumeOnline, logout } = useAuth();
+  const insets = useSafeAreaInsets();
   const { status, progress, lastSyncedFor, isOnline, isStale, hasNoData, syncNow } =
     useSync();
 
@@ -51,6 +54,26 @@ export function SyncGate({ children }: { children: ReactNode }) {
       );
     }
 
+    // Online but signed in offline: a download needs a server token first.
+    if (isOfflineSession && isOnline) {
+      return (
+        <View style={styles.fullScreen}>
+          {canResumeOnline ? <ActivityIndicator size="large" color={Colors.primary} /> : null}
+          <Text style={styles.title}>No offline data yet</Text>
+          <Text style={styles.subtitle}>
+            {canResumeOnline
+              ? 'Signed in offline. Connecting to the server to download today’s content…'
+              : 'Signed in offline. Sign in again to download today’s content.'}
+          </Text>
+          {canResumeOnline ? null : (
+            <View style={styles.action}>
+              <AppButton label="Sign in again" onPress={() => void logout()} />
+            </View>
+          )}
+        </View>
+      );
+    }
+
     return (
       <View style={styles.fullScreen}>
         <Text style={styles.title}>No offline data yet</Text>
@@ -70,12 +93,23 @@ export function SyncGate({ children }: { children: ReactNode }) {
   }
 
   // Has data: show the app, plus a status banner when relevant.
-  const showBanner = !isOnline || isStale || status === 'syncing';
-  const bannerSyncing = status === 'syncing';
+  // Signed in offline but the network is up: sync is held until the session
+  // gets a server token, so say so rather than offering a sync that can't run.
+  const bannerSignIn = isOfflineSession && isOnline;
+  const showBanner = bannerSignIn || !isOnline || isStale || status === 'syncing';
+  const bannerSyncing = status === 'syncing' || (bannerSignIn && canResumeOnline);
   const bannerOffline = !isOnline;
 
   let bannerText: string;
-  if (bannerSyncing) {
+  let onBannerPress = () => void syncNow();
+  if (bannerSignIn && canResumeOnline) {
+    bannerText = 'Signed in offline · connecting to server…';
+  } else if (bannerSignIn) {
+    // After an app restart the typed password is gone, so the session cannot
+    // upgrade itself. Signing out keeps all offline data and queued calls.
+    bannerText = 'Signed in offline · tap to sign in again and sync';
+    onBannerPress = () => void logout();
+  } else if (bannerSyncing) {
     bannerText = progress
       ? `Syncing… ${progress.done}/${progress.total}`
       : 'Syncing today’s content…';
@@ -87,9 +121,15 @@ export function SyncGate({ children }: { children: ReactNode }) {
 
   const bannerStyle = [
     styles.banner,
+    // The app draws edge-to-edge, so the banner sits under the status bar.
+    // Pad it by the inset: the colour fills in behind the clock and battery
+    // and the text starts below them. The screen underneath needs no change —
+    // its SafeAreaView pads only by its own overlap with the status bar, which
+    // is none once the banner pushes it down.
+    { paddingTop: insets.top + 6 },
     bannerSyncing
       ? styles.bannerInfo
-      : bannerOffline
+      : bannerOffline || bannerSignIn
         ? styles.bannerOffline
         : styles.bannerStale,
   ];
@@ -98,10 +138,13 @@ export function SyncGate({ children }: { children: ReactNode }) {
     <View style={styles.flex}>
       {showBanner ? (
         <View style={bannerStyle}>
+          {/* Light icons on the coloured banner; unmounting restores the
+              root StatusBar's own style. */}
+          <StatusBar style="light" />
           {bannerSyncing ? (
             <ActivityIndicator size="small" color={Colors.textOnDark} />
           ) : null}
-          <Text style={styles.bannerText} onPress={() => void syncNow()}>
+          <Text style={styles.bannerText} onPress={onBannerPress}>
             {bannerText}
           </Text>
         </View>

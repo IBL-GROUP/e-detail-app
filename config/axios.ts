@@ -16,6 +16,17 @@ export function setUnauthorizedHandler(handler: UnauthorizedHandler | null) {
   onUnauthorized = handler;
 }
 
+/**
+ * Notified when the server answers while the session is still OFFLINE (signed
+ * in against the on-device mirror, no server token yet). That is proof the API
+ * is reachable again, so AuthProvider uses it to retry the real login.
+ */
+let onOfflineSessionReachedServer: (() => void) | null = null;
+
+export function setOfflineSessionHandler(handler: (() => void) | null) {
+  onOfflineSessionReachedServer = handler;
+}
+
 if (!API_BASE_URL) {
   console.warn(
     'No API base URL is configured. Set EXPO_PUBLIC_API_BASE_URL for deployed builds, EXPO_PUBLIC_LOCAL_API_BASE_URL for local web, or EXPO_PUBLIC_NATIVE_API_BASE_URL for Metro on a device if needed.'
@@ -75,8 +86,19 @@ axios.interceptors.response.use(
       // must surface as "invalid credentials" on the login screen rather than
       // tearing down a session that was never established.
       const isLoginRequest = String(error.config?.url ?? '').includes('/auth/login');
+      // An offline session never had a server token, so TOKEN_MISSING is the
+      // expected answer the moment the network comes back — not a dead session.
+      // Logging out here is what kicked reps out after a login timed out on a
+      // slow network: the app fell back to offline login, then the first sync
+      // request that did get through came back 401 and ended the session.
+      const isOfflineSession = isOfflineSessionToken(getAccessToken());
 
-      if (isSessionFailure && !isLoginRequest) {
+      if (isSessionFailure && isOfflineSession) {
+        console.warn(
+          `[API] 401 ${code} on ${error.config?.url} — offline session, retrying sign-in`,
+        );
+        onOfflineSessionReachedServer?.();
+      } else if (isSessionFailure && !isLoginRequest) {
         console.warn(`[API] 401 ${code} on ${error.config?.url} — session ended`);
         onUnauthorized?.(code);
       } else {
