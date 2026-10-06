@@ -10,6 +10,7 @@ import {
 import NetInfo from '@react-native-community/netinfo';
 import { useQueryClient } from '@tanstack/react-query';
 
+import { useAuth } from '@/providers/AuthProvider';
 import {
   flushOutbox,
   getPendingCount,
@@ -141,6 +142,18 @@ export function OutboxProvider({ children }: { children: ReactNode }) {
     });
     return unsubscribe;
   }, [refreshCount, flushPatients]);
+
+  // Flush once a server token is in hand — after a sign-in, and in particular
+  // when an offline session upgrades to an online one. Calls queued while the
+  // session was offline could not upload until then, and connectivity may not
+  // have changed at all (a slow network that was "connected" throughout).
+  const { token, isOfflineSession } = useAuth();
+  const hasServerToken = Boolean(token) && !isOfflineSession;
+  useEffect(() => {
+    if (!hasServerToken) return;
+    void flushOutbox().then(refreshCount);
+    void flushPatients().then(refreshCount);
+  }, [hasServerToken, refreshCount, flushPatients]);
 
   const flushNow = useCallback(async () => {
     await flushOutbox();

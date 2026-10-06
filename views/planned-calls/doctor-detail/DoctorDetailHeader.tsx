@@ -2,7 +2,7 @@ import { Colors } from '@/constants/theme';
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useScreenTopInset } from '@/components/ui/ScreenTopInset';
 
 interface DoctorDetailHeaderProps {
   name: string;
@@ -12,9 +12,10 @@ interface DoctorDetailHeaderProps {
 }
 
 export function DoctorDetailHeader({ name, specialty, onBack }: DoctorDetailHeaderProps) {
+  const topInset = useScreenTopInset();
   return (
     <View style={styles.wrapper}>
-      <SafeAreaView edges={['top']}>
+      <View style={{ paddingTop: topInset }}>
         <View style={styles.topRow}>
           <Pressable
             onPress={onBack ?? (() => router.back())}
@@ -23,7 +24,7 @@ export function DoctorDetailHeader({ name, specialty, onBack }: DoctorDetailHead
             <Ionicons name="chevron-back" size={20} color={Colors.textOnDark} />
           </Pressable>
         </View>
-      </SafeAreaView>
+      </View>
 
       <View style={styles.profileRow}>
         <View style={styles.avatarCard}>

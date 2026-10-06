@@ -1064,6 +1064,7 @@ export default function AnalyticsScreen() {
                         value={activeSlideSpecialty.name}
                         onChange={setSlideSpecialty}
                         variant="box"
+                        scrollable
                       />
                     </ScrollView>
                   ) : null}
@@ -1097,7 +1098,7 @@ export default function AnalyticsScreen() {
 const styles = StyleSheet.create({
   content: {
     gap: 18,
-    paddingBottom: 36,
+    paddingBottom: 16,
   },
   headerActions: {
     flexDirection: 'row',

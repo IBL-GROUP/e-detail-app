@@ -8,6 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
+import { AppState } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 
 import { useAuth } from '@/providers/AuthProvider';
@@ -35,7 +36,11 @@ interface SyncContextValue {
 const SyncContext = createContext<SyncContextValue | undefined>(undefined);
 
 export function SyncProvider({ children }: { children: ReactNode }) {
-  const { user, isAuthenticated } = useAuth();
+  const { user, isAuthenticated: isSignedIn, isOfflineSession } = useAuth();
+  // Syncing needs a server token. An offline session has none, so every sync
+  // request would only come back 401 — hold off until it upgrades to a real one,
+  // at which point the effects below fire the sync it missed.
+  const isAuthenticated = isSignedIn && !isOfflineSession;
   const [status, setStatus] = useState<SyncStatus>('idle');
   const [progress, setProgress] = useState<DownloadProgress | null>(null);
   const [lastSyncedFor, setLastSyncedFor] = useState<string | null>(null);
@@ -82,6 +87,18 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     return unsubscribe;
   }, []);
 
+  // Coming back to the app is when a new day shows up: re-render so the stale
+  // check below sees today's date, and allow one more catch-up attempt.
+  const [, setForegroundTick] = useState(0);
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (next) => {
+      if (next !== 'active') return;
+      autoSyncAttemptedRef.current = false;
+      setForegroundTick((tick) => tick + 1);
+    });
+    return () => subscription.remove();
+  }, []);
+
   // Seed the Planned screen from the on-device bulk cache as soon as we know the
   // rep, so their planned calls render offline even if they never synced
   // individually. Only fills an empty cache (won't clobber a fresh online fetch).
@@ -94,7 +111,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     if (runningRef.current) return;
     const mieId = user?.mieId;
     const teamId = user?.teamId;
-    if (!mieId || !teamId) return;
+    if (!mieId || !teamId || !isAuthenticated) return;
 
     runningRef.current = true;
     setStatus('syncing');
@@ -106,6 +123,10 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       setLastSyncedFor(meta.lastSyncedFor);
       setLastSyncedAt(meta.lastSyncedAt);
       setStatus('success');
+      // Re-arm the day catch-up below. It used to stay spent after the first
+      // success, so an app left open overnight never pulled the next day's
+      // data and sat on yesterday's until it was restarted.
+      autoSyncAttemptedRef.current = false;
     } catch (error) {
       console.warn('[sync] failed', error);
       setStatus('error');
@@ -113,7 +134,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       setProgress(null);
       runningRef.current = false;
     }
-  }, [user?.mieId, user?.teamId]);
+  }, [user?.mieId, user?.teamId, isAuthenticated]);
 
   const isStale = isHydrated && lastSyncedFor !== todayWorkday();
   const hasNoData = isHydrated && lastSyncedFor === null;

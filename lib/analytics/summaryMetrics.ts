@@ -82,11 +82,12 @@ export function useSummaryMetrics(
   const prevAvgSeconds =
     prevCalls > 0 ? (totals?.previousMonthSeconds ?? 0) / prevCalls : 0;
 
-  // Change against the same span a month back — the comparison the Calls
-  // Completed card already makes. No pill when there is nothing to compare to:
-  // a first month would otherwise show a meaningless +100%.
+  // Change against the previous month — the comparison the Calls Completed card
+  // already makes. No pill unless BOTH sides have an average: a first month
+  // would otherwise show a meaningless +100%, and a period with no calls yet
+  // (early in the month) a red -100% against a value that is "—", not zero.
   const avgChange =
-    prevAvgSeconds > 0
+    calls > 0 && prevAvgSeconds > 0
       ? Math.round(((avgSeconds - prevAvgSeconds) / prevAvgSeconds) * 100)
       : null;
 

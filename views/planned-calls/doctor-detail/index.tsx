@@ -307,7 +307,7 @@ const styles = StyleSheet.create({
   content: {
     padding: 16,
     gap: 14,
-    paddingBottom: 40,
+    paddingBottom: 16,
   },
   buttonsRow: {
     flexDirection: 'row',

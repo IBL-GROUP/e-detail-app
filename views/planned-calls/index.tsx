@@ -291,8 +291,6 @@ export default function PlannedCalls() {
     );
   };
 
-  const renderFooter = () => <View style={styles.footerSpacer} />;
-
   // Group calls replace the doctor listing with their own panel. Chamber,
   // parking and join all run the doctor-by-doctor flow below — identical apart
   // from the kind recorded against the call. The Call Type selector sits above
@@ -304,6 +302,15 @@ export default function PlannedCalls() {
   const showInstitutionPanel = callKind === 'group' && !isCompletedView;
 
   const kindLabel = CALL_KIND_LABELS[callKind].toLowerCase();
+
+  // Mirrors the conditions inside the list header below.
+  const listHeaderVisible =
+    doctorsQuery.isLoading ||
+    doctorsQuery.isError ||
+    totalLoaded === 0 ||
+    sourceLabel === 'temporary-fallback' ||
+    filteredDoctors.length === 0 ||
+    hasActiveSearch;
 
   // Pinned above the Call Type selector: the count, the Completed toggle and
   // the search stay put while the list scrolls under them.
@@ -410,7 +417,11 @@ export default function PlannedCalls() {
         showsVerticalScrollIndicator={false}
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.35}
+        // Only when it has something to say: an empty header still took a
+        // margin and a list gap, which doubled the space under Call Type
+        // compared with the Group view.
         ListHeaderComponent={
+          listHeaderVisible ? (
           <View style={styles.section}>
             {doctorsQuery.isLoading ? (
               <View style={styles.stateCard}>
@@ -470,8 +481,8 @@ export default function PlannedCalls() {
               </Text>
             ) : null}
           </View>
+          ) : null
         }
-        ListFooterComponent={renderFooter}
       />
     </ScreenLayout>
   );
@@ -484,12 +495,13 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 16,
-    paddingBottom: 32,
+    // The same 16 as the other sides: a gap under the last item, nothing extra.
+    paddingBottom: 16,
     gap: 10,
   },
   section: {
     gap: 12,
-    marginBottom: 10,
+    // The list's own 10 gap already separates it from the first card.
   },
   // Pinned above the Call Type selector, so the count, toggle and search stay
   // reachable while the doctor list scrolls beneath them. Raised on its own
@@ -583,7 +595,7 @@ const styles = StyleSheet.create({
   // No horizontal padding here: InstitutionCallPanel already applies its own
   // 16px, and adding a second one inset its cards past the Call Type selector.
   panelContent: {
-    paddingBottom: 32,
+    paddingBottom: 16,
   },
   sourceHint: {
     fontSize: 12,
@@ -627,8 +639,5 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.textMuted,
     fontWeight: '600',
-  },
-  footerSpacer: {
-    height: 12,
   },
 });

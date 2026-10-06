@@ -1,4 +1,4 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack, useRootNavigationState, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
@@ -6,9 +6,9 @@ import { TamaguiProvider } from '@tamagui/core';
 import { useEffect } from 'react';
 import { ActivityIndicator, StyleSheet, View } from 'react-native';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { useFonts } from 'expo-font';
 
-import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Colors } from '@/constants/theme';
 import { AuthProvider, useAuth } from '@/providers/AuthProvider';
 import { AppQueryProvider } from '@/providers/QueryProvider';
@@ -70,7 +70,6 @@ function AuthGate() {
 }
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
   const [fontsLoaded] = useFonts(AppFonts);
 
   // Register the unattended overnight sync (best-effort; OS-scheduled).
@@ -92,20 +91,30 @@ export default function RootLayout() {
     // Required for react-native-gesture-handler: without it, the carousel's
     // swipe gestures (call slides and Content Viewing) do nothing on Android.
     <GestureHandlerRootView style={styles.root}>
-      <AppQueryProvider>
-        <AuthProvider>
-          <OutboxProvider>
-            <SyncProvider>
-              <TamaguiProvider config={config} defaultTheme={colorScheme === 'dark' ? 'dark' : 'light'}>
-                <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
-                  <AuthGate />
-                  <StatusBar style="auto" />
-                </ThemeProvider>
-              </TamaguiProvider>
-            </SyncProvider>
-          </OutboxProvider>
-        </AuthProvider>
-      </AppQueryProvider>
+      {/* Reads the keyboard inset straight from Android. Edge-to-edge (on by
+          default since SDK 54) makes adjustResize a no-op, so nothing in React
+          Native itself — KeyboardAvoidingView included — sees the keyboard any
+          more, and a Modal never resized for it even before that. */}
+      <KeyboardProvider>
+        <AppQueryProvider>
+          <AuthProvider>
+            <OutboxProvider>
+              <SyncProvider>
+                {/* Light only, whatever the phone is set to: the screens are
+                    designed on light surfaces, and following dark mode turned
+                    the tab bar and navigation backgrounds black under them
+                    and drew white status-bar icons on the white headers. */}
+                <TamaguiProvider config={config} defaultTheme="light">
+                  <ThemeProvider value={DefaultTheme}>
+                    <AuthGate />
+                    <StatusBar style="dark" />
+                  </ThemeProvider>
+                </TamaguiProvider>
+              </SyncProvider>
+            </OutboxProvider>
+          </AuthProvider>
+        </AppQueryProvider>
+      </KeyboardProvider>
     </GestureHandlerRootView>
   );
 }

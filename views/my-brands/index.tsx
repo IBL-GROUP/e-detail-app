@@ -140,7 +140,7 @@ const styles = StyleSheet.create({
   content: {
     padding: 16,
     gap: 12,
-    paddingBottom: 32,
+    paddingBottom: 16,
   },
   grid: {
     gap: 12,

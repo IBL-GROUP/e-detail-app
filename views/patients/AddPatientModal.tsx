@@ -1,10 +1,7 @@
 import { useMemo, useState } from 'react';
 import {
-  KeyboardAvoidingView,
   Modal,
-  Platform,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -12,6 +9,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { Ionicons } from '@expo/vector-icons';
 
 import { AppBottomSheetSelect } from '@/components/ui/AppBottomSheetSelect';
@@ -123,6 +121,7 @@ export function AddPatientModal({
 }: AddPatientModalProps) {
   const { height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+
 
   const [patientName, setPatientName] = useState('');
   const [contactNumber, setContactNumber] = useState('');
@@ -354,10 +353,7 @@ export function AddPatientModal({
       // always starts blank rather than on the previous patient.
       onDismiss={resetForm}
     >
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-        style={styles.fill}
-      >
+      <View style={styles.fill}>
         <View
           style={[
             styles.backdrop,
@@ -375,9 +371,10 @@ export function AddPatientModal({
               </Pressable>
             </View>
 
-            <ScrollView
+            <KeyboardAwareScrollView
               contentContainerStyle={styles.content}
               showsVerticalScrollIndicator={false}
+              bottomOffset={24}
               keyboardShouldPersistTaps="handled"
             >
               <Field label="Patient Name" required>
@@ -600,7 +597,7 @@ export function AddPatientModal({
                   <Text style={styles.errorBannerText}>{errorMessage}</Text>
                 </View>
               ) : null}
-            </ScrollView>
+            </KeyboardAwareScrollView>
 
             <View style={styles.footer}>
               <AppButton
@@ -617,7 +614,7 @@ export function AddPatientModal({
             </View>
           </View>
         </View>
-      </KeyboardAvoidingView>
+      </View>
     </Modal>
   );
 }

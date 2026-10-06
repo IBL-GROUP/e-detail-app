@@ -6,10 +6,7 @@ import { Redirect } from 'expo-router';
 import { useState } from 'react';
 import {
   ActivityIndicator,
-  KeyboardAvoidingView,
-  Platform,
   Pressable,
-  ScrollView,
   StatusBar,
   StyleSheet,
   Text,
@@ -17,6 +14,7 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 
 export default function LoginScreen() {
   const { isAuthenticated, isHydrated, login, isSyncingOfflineUsers } = useAuth();
@@ -78,17 +76,15 @@ export default function LoginScreen() {
       <View style={styles.washTop} />
       <View style={styles.washBottom} />
 
-      <KeyboardAvoidingView
-        style={styles.flex}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
-      >
-        <ScrollView
+      <View style={styles.flex}>
+        <KeyboardAwareScrollView
           contentContainerStyle={[
             styles.scrollContent,
             { paddingTop: insets.top + 32, paddingBottom: insets.bottom + 32 },
           ]}
-          keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          bottomOffset={24}
+          keyboardShouldPersistTaps="handled"
         >
           {/*
             One centred column on a plain background: wordmark, then the form.
@@ -221,8 +217,8 @@ export default function LoginScreen() {
               </Pressable>
             </View>
           </View>
-        </ScrollView>
-      </KeyboardAvoidingView>
+        </KeyboardAwareScrollView>
+      </View>
     </View>
   );
 }

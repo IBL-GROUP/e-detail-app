@@ -1,7 +1,8 @@
-import { ScrollView, StyleSheet, View, ViewStyle } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { StyleSheet, View, ViewStyle } from 'react-native';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 import { router } from 'expo-router';
 import { AppHeader } from '@/components/ui/AppHeader';
+import { useScreenTopInset } from '@/components/ui/ScreenTopInset';
 import { Colors } from '@/constants/theme';
 
 interface ScreenLayoutProps {
@@ -39,8 +40,11 @@ export function ScreenLayout({
   contentStyle,
   showBack = false,
 }: ScreenLayoutProps) {
+  // Below the status bar — or straight below the sync banner, which already
+  // covers it.
+  const topInset = useScreenTopInset();
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <View style={[styles.safe, { paddingTop: topInset }]}>
       <AppHeader
         title={title}
         subtitle={subtitle}
@@ -51,17 +55,22 @@ export function ScreenLayout({
         onBack={showBack ? goBack : undefined}
       />
       {scrollable ? (
-        <ScrollView
+        <KeyboardAwareScrollView
           style={styles.scroll}
           contentContainerStyle={[styles.content, contentStyle]}
           showsVerticalScrollIndicator={false}
+          // Gap left between the focused field and the top of the keyboard.
+          bottomOffset={24}
+          // Without this the first tap on a button while the keyboard is up
+          // only dismisses the keyboard, and the button needs tapping twice.
+          keyboardShouldPersistTaps="handled"
         >
           {children}
-        </ScrollView>
+        </KeyboardAwareScrollView>
       ) : (
         <View style={[styles.flat, contentStyle]}>{children}</View>
       )}
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -77,7 +86,8 @@ const styles = StyleSheet.create({
   content: {
     padding: 16,
     gap: 14,
-    paddingBottom: 32,
+    // The same 16 as the other sides: a gap under the last item, nothing extra.
+    paddingBottom: 16,
   },
   flat: {
     flex: 1,

@@ -2,7 +2,6 @@ import { useState } from 'react';
 import {
   Modal,
   Pressable,
-  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -10,6 +9,7 @@ import {
   useWindowDimensions,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 
 import { AppButton } from '@/components/ui/AppButton';
 import { Colors } from '@/constants/theme';
@@ -50,6 +50,7 @@ export function CancelCallModal({
   onConfirm,
 }: CancelCallModalProps) {
   const insets = useSafeAreaInsets();
+
   const { width, height } = useWindowDimensions();
   const [selectedReason, setSelectedReason] = useState('');
   const [note, setNote] = useState('');
@@ -119,9 +120,10 @@ export function CancelCallModal({
             <Text style={styles.subtitle}>Why are you cancelling this call?</Text>
           </View>
 
-          <ScrollView
+          <KeyboardAwareScrollView
             style={styles.scrollArea}
             contentContainerStyle={styles.content}
+            bottomOffset={24}
             keyboardShouldPersistTaps="handled"
           >
             <Text style={styles.subjectLine}>{subject}</Text>
@@ -164,7 +166,7 @@ export function CancelCallModal({
               numberOfLines={3}
               style={styles.noteInput}
             />
-          </ScrollView>
+          </KeyboardAwareScrollView>
 
           <View style={styles.footer}>
             <AppButton

@@ -3,8 +3,9 @@ import { AppButton } from '@/components/ui/AppButton';
 import { AppMultiSelectSheet, MultiSelectOption } from '@/components/ui/AppMultiSelectSheet';
 import { Colors } from '@/constants/theme';
 import { useMemo, useState } from 'react';
-import { Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
+import { Modal, Pressable, StyleSheet, Text, TextInput, View, useWindowDimensions } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 
 export interface CallSummaryData {
   // The selected quick-feedback chips (joined).
@@ -82,6 +83,7 @@ export function CallSummaryModal({
 }: CallSummaryModalProps) {
   const { width, height } = useWindowDimensions();
   const insets = useSafeAreaInsets();
+
   const isLandscape = width > height;
   const [selectedDoctor, setSelectedDoctor] = useState('');
   const [selectedDoctors, setSelectedDoctors] = useState<string[]>([]);
@@ -185,11 +187,13 @@ export function CallSummaryModal({
             <Text style={styles.subtitle}>Please complete the call report</Text>
           </View>
 
-          <ScrollView
+          <KeyboardAwareScrollView
             style={styles.scrollArea}
             contentContainerStyle={[styles.content, isLandscape && styles.contentLandscape]}
             showsVerticalScrollIndicator={false}
             bounces={false}
+            bottomOffset={24}
+            keyboardShouldPersistTaps="handled"
           >
             {requireDoctor ? (
               <View style={styles.doctorField}>
@@ -332,7 +336,7 @@ export function CallSummaryModal({
               multiline
               style={styles.commentInput}
             />
-          </ScrollView>
+          </KeyboardAwareScrollView>
 
           <View style={[styles.actions, isLandscape && styles.actionsLandscape]}>
             <AppButton

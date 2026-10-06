@@ -3,13 +3,16 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react';
 import { Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
-import axios, { setUnauthorizedHandler } from '@/config/axios';
+import NetInfo from '@react-native-community/netinfo';
+import axios, { setOfflineSessionHandler, setUnauthorizedHandler } from '@/config/axios';
 import {
+  getAccessToken,
   setAccessToken,
   isTokenExpired,
   isOfflineSessionToken,
@@ -69,7 +72,21 @@ interface AuthContextValue {
   changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
   /** True while the on-open offline login mirror download is in progress. */
   isSyncingOfflineUsers: boolean;
+  /**
+   * Signed in against the on-device mirror, with no server token. The app is
+   * usable on cached data, but nothing can sync until a real sign-in succeeds.
+   */
+  isOfflineSession: boolean;
+  /**
+   * The offline session can upgrade itself: the password typed at sign-in is
+   * held in memory and the real login is retried in the background. False after
+   * an app restart, when the rep has to sign in again to sync.
+   */
+  canResumeOnline: boolean;
 }
+
+/** How often an offline session retries the real login while it can. */
+const ONLINE_RETRY_MS = 30_000;
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
@@ -280,6 +297,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Starts true so the login screen's Sign In stays disabled until the on-open
   // offline mirror download finishes (or fails fast when offline).
   const [isSyncingOfflineUsers, setIsSyncingOfflineUsers] = useState(true);
+  // The credentials typed for an OFFLINE sign-in, kept in memory only (never
+  // persisted) so the session can be upgraded to a real token once the server
+  // answers. Cleared on upgrade and on logout.
+  const pendingCredentialsRef = useRef<{ username: string; password: string } | null>(
+    null,
+  );
+  const [canResumeOnline, setCanResumeOnline] = useState(false);
+  const upgradingRef = useRef(false);
 
   useEffect(() => {
     let isMounted = true;
@@ -338,38 +363,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // (matched against user_validation.email_id, online and offline).
     const username = toLoginIdentifier(rawId);
     try {
-      const nextSession = await apiLogin(username, password);
-      setAccessToken(nextSession.token);
-      setToken(nextSession.token);
-      setUser(nextSession.user);
-      await writeStoredSession(nextSession);
-      // Cache a verifiable credential so this user can log in offline later.
-      await saveOfflineCredential(username, password, nextSession.user);
-      // Refresh the login mirror + planned bulk after a successful online login
-      // (best-effort; doesn't block the login).
-      void bootstrapOfflineUsers();
-      void bootstrapPlannedBulk();
+      await startOnlineSession(username, password);
     } catch (error: any) {
       // Only fall back to offline login when the server was unreachable — a real
-      // 401/403 must still surface as an invalid-credentials error.
+      // 401/403 must still surface as an invalid-credentials error. "Unreachable"
+      // includes a login that timed out on a slow network, so the server may well
+      // answer later requests: the session upgrades itself when it does (see
+      // upgradeOfflineSession) rather than being logged out by the first 401.
       if (error?.isNetworkError) {
         // 1) Any active user via the on-device login mirror.
         const mirrorRecord = await verifyOfflineUser(username, password);
         if (mirrorRecord) {
-          const session = offlineRecordToSession(mirrorRecord);
-          setAccessToken(session.token);
-          setToken(session.token);
-          setUser(session.user);
-          await writeStoredSession(session);
+          await startOfflineSession(offlineRecordToSession(mirrorRecord), username, password);
           return;
         }
         // 2) Fallback: this device's last online user (salted-hash cache).
         const offlineSession = await verifyOfflineCredential(username, password);
         if (offlineSession) {
-          setAccessToken(offlineSession.token);
-          setToken(offlineSession.token);
-          setUser(offlineSession.user);
-          await writeStoredSession(offlineSession);
+          await startOfflineSession(offlineSession, username, password);
           return;
         }
         throw new Error(
@@ -380,7 +391,65 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
+  async function startOnlineSession(username: string, password: string) {
+    const nextSession = await apiLogin(username, password);
+    pendingCredentialsRef.current = null;
+    setCanResumeOnline(false);
+    setAccessToken(nextSession.token);
+    setToken(nextSession.token);
+    setUser(nextSession.user);
+    await writeStoredSession(nextSession);
+    // Cache a verifiable credential so this user can log in offline later.
+    await saveOfflineCredential(username, password, nextSession.user);
+    // Refresh the login mirror + planned bulk after a successful online login
+    // (best-effort; doesn't block the login).
+    void bootstrapOfflineUsers();
+    void bootstrapPlannedBulk();
+  }
+
+  async function startOfflineSession(
+    session: PersistedSession,
+    username: string,
+    password: string,
+  ) {
+    pendingCredentialsRef.current = { username, password };
+    setCanResumeOnline(true);
+    setAccessToken(session.token);
+    setToken(session.token);
+    setUser(session.user);
+    await writeStoredSession(session);
+  }
+
+  /**
+   * Swap an offline session for a real one by retrying the login with the
+   * credentials typed this session. Network failure keeps the offline session
+   * (try again later); a real rejection means the cached credential no longer
+   * matches the server — password changed or account disabled — so it ends.
+   */
+  async function upgradeOfflineSession() {
+    const credentials = pendingCredentialsRef.current;
+    if (!credentials || upgradingRef.current) return;
+    if (!isOfflineSessionToken(getAccessToken())) return;
+
+    upgradingRef.current = true;
+    try {
+      await startOnlineSession(credentials.username, credentials.password);
+      console.log('[Auth] offline session upgraded to an online session');
+    } catch (error: any) {
+      if (error?.isNetworkError) {
+        console.log('[Auth] server still unreachable — staying signed in offline');
+      } else {
+        console.warn('[Auth] server rejected the offline credentials — signing out', error);
+        await logout();
+      }
+    } finally {
+      upgradingRef.current = false;
+    }
+  }
+
   const logout = async () => {
+    pendingCredentialsRef.current = null;
+    setCanResumeOnline(false);
     // Logout only drops the session — it intentionally KEEPS all offline data:
     // the React Query cache (doctors / forcing / SKUs / unplanned pool), the
     // downloaded slide images, planned bulk, sync metadata, login mirror, and
@@ -408,6 +477,39 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     });
     return () => setUnauthorizedHandler(null);
   }, []);
+
+  // An offline session found the server reachable (a request came back 401
+  // TOKEN_MISSING) — retry the real login now instead of logging out.
+  // upgradeOfflineSession reads only refs and stable setters, so registering it
+  // once is safe.
+  useEffect(() => {
+    setOfflineSessionHandler(() => {
+      void upgradeOfflineSession();
+    });
+    return () => setOfflineSessionHandler(null);
+  }, []);
+
+  // While an offline session can upgrade itself, retry on reconnect and on a
+  // timer. The timer matters on a slow network: NetInfo reports "connected"
+  // throughout, so there is no offline -> online transition to react to.
+  const isOfflineSession = isOfflineSessionToken(token);
+  useEffect(() => {
+    if (!isOfflineSession || !canResumeOnline) return;
+
+    const attempt = async () => {
+      const net = await NetInfo.fetch();
+      if (net.isConnected) await upgradeOfflineSession();
+    };
+
+    const unsubscribe = NetInfo.addEventListener((state) => {
+      if (state.isConnected) void upgradeOfflineSession();
+    });
+    const timer = setInterval(() => void attempt(), ONLINE_RETRY_MS);
+    return () => {
+      unsubscribe();
+      clearInterval(timer);
+    };
+  }, [isOfflineSession, canResumeOnline]);
 
   // Change the signed-in user's password. Updates the server, then refreshes the
   // on-device offline credential so offline login works with the new password.
@@ -443,8 +545,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       logout,
       changePassword,
       isSyncingOfflineUsers,
+      isOfflineSession,
+      canResumeOnline,
     }),
-    [isHydrated, token, user, isSyncingOfflineUsers],
+    [isHydrated, token, user, isSyncingOfflineUsers, isOfflineSession, canResumeOnline],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

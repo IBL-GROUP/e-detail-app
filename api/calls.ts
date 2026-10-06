@@ -70,7 +70,7 @@ export interface CallTrackingInput {
   recording_duration_seconds?: number;
   prescriptions_json?: unknown; // jsonb
   current_medicines_json?: unknown; // jsonb
-  created_by?: number; // user_validation.user_id
+  created_by?: number; // the account's old numeric id (user_login.legacy_user_id); the server resolves it from tsoid
 }
 
 export interface BatchCallItem extends CallTrackingInput {
@@ -82,6 +82,13 @@ export interface BatchCallResult {
   clientId: string | null;
   success: boolean;
   callId?: number;
+  /**
+   * HTTP-style status for a failure: 4xx means the server judged THIS row
+   * wrong, 5xx that the server itself failed. The outbox gives up on a call
+   * only for the former. Absent from older backends, and then treated as a
+   * server fault — never discard a call on a guess.
+   */
+  status?: number;
   message?: string;
 }
 

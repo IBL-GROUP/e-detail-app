@@ -111,7 +111,6 @@ export default function ContentLibrary() {
             ) : null}
           </View>
         }
-        ListFooterComponent={<View style={styles.footerSpacer} />}
       />
     </ScreenLayout>
   );
@@ -120,6 +119,8 @@ export default function ContentLibrary() {
 const styles = StyleSheet.create({
   content: {
     padding: 16,
+    // The same 16 as the other sides: a gap under the last item, nothing extra.
+    paddingBottom: 16,
     gap: 12,
   },
   row: {
@@ -182,8 +183,5 @@ const styles = StyleSheet.create({
     width: 1,
     alignSelf: 'stretch',
     backgroundColor: Colors.border,
-  },
-  footerSpacer: {
-    height: 24,
   },
 });
