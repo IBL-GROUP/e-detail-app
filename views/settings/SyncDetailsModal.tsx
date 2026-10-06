@@ -187,6 +187,7 @@ export function SyncDetailsModal({ visible, onClose, backlog }: SyncDetailsModal
   const canSync = isOnline && !isBusy;
   const { pendingCalls, rejectedCalls, pendingPatients, unsyncedCalls, unsyncedTotal } =
     backlog;
+  const showSyncButton = unsyncedTotal > 0 || isBusy;
 
   // Upload first, then download — the fresh pull then already reflects the
   // calls that just landed.
@@ -330,34 +331,40 @@ export function SyncDetailsModal({ visible, onClose, backlog }: SyncDetailsModal
                 </Text>
               ) : null}
 
-              <Pressable
-                onPress={() => void handleSync()}
-                disabled={!canSync}
-                style={({ pressed }) => [
-                  styles.syncButton,
-                  !isOnline && !isBusy && styles.syncButtonDisabled,
-                  pressed && styles.pressed,
-                ]}
-              >
-                {isBusy ? (
-                  <ActivityIndicator size="small" color={Colors.textOnDark} />
-                ) : (
-                  <Ionicons
-                    name="sync-outline"
-                    size={18}
-                    color={isOnline ? Colors.textOnDark : Colors.disabledText}
-                  />
-                )}
-                <Text
-                  style={[
-                    styles.syncButtonText,
-                    !isOnline && !isBusy && styles.syncButtonTextDisabled,
+              {/* Only when there is something to send — with nothing pending
+                  the button had nothing to do. Kept up while a sync runs, so
+                  its progress stays visible until it finishes. The Settings
+                  screen's own Sync now still pulls fresh data any time. */}
+              {showSyncButton ? (
+                <Pressable
+                  onPress={() => void handleSync()}
+                  disabled={!canSync}
+                  style={({ pressed }) => [
+                    styles.syncButton,
+                    !isOnline && !isBusy && styles.syncButtonDisabled,
+                    pressed && styles.pressed,
                   ]}
                 >
-                  {isBusy ? 'Syncing…' : 'Sync Data Now'}
-                </Text>
-              </Pressable>
-              {!isOnline ? (
+                  {isBusy ? (
+                    <ActivityIndicator size="small" color={Colors.textOnDark} />
+                  ) : (
+                    <Ionicons
+                      name="sync-outline"
+                      size={18}
+                      color={isOnline ? Colors.textOnDark : Colors.disabledText}
+                    />
+                  )}
+                  <Text
+                    style={[
+                      styles.syncButtonText,
+                      !isOnline && !isBusy && styles.syncButtonTextDisabled,
+                    ]}
+                  >
+                    {isBusy ? 'Syncing…' : 'Sync Data Now'}
+                  </Text>
+                </Pressable>
+              ) : null}
+              {!isOnline && unsyncedTotal > 0 ? (
                 <Text style={styles.hint}>
                   You&apos;re offline. Pending changes upload automatically when you reconnect.
                 </Text>

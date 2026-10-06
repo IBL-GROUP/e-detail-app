@@ -7,6 +7,7 @@ import { Colors } from '@/constants/theme';
 import { useAuth } from '@/providers/AuthProvider';
 import { useSync } from '@/providers/SyncProvider';
 import { AppButton } from '@/components/ui/AppButton';
+import { StatusBannerProvider } from '@/components/ui/ScreenTopInset';
 
 function formatDate(value: string | null): string {
   if (!value) return '—';
@@ -28,7 +29,7 @@ function formatDate(value: string | null): string {
 export function SyncGate({ children }: { children: ReactNode }) {
   const { isAuthenticated, isOfflineSession, canResumeOnline, logout } = useAuth();
   const insets = useSafeAreaInsets();
-  const { status, progress, lastSyncedFor, isOnline, isStale, hasNoData, syncNow } =
+  const { status, progress, lastSyncedFor, isOnline, hasNoData, syncNow } =
     useSync();
 
   // Login flow and unauthenticated screens get no sync chrome.
@@ -96,9 +97,11 @@ export function SyncGate({ children }: { children: ReactNode }) {
   // Signed in offline but the network is up: sync is held until the session
   // gets a server token, so say so rather than offering a sync that can't run.
   const bannerSignIn = isOfflineSession && isOnline;
-  const showBanner = bannerSignIn || !isOnline || isStale || status === 'syncing';
+  // Online, the bar is only up while a sync is actually running; once it
+  // finishes it goes. Old data alone no longer keeps a bar on screen — the app
+  // re-syncs it by itself (SyncProvider), and Settings shows the last sync.
+  const showBanner = bannerSignIn || !isOnline || status === 'syncing';
   const bannerSyncing = status === 'syncing' || (bannerSignIn && canResumeOnline);
-  const bannerOffline = !isOnline;
 
   let bannerText: string;
   let onBannerPress = () => void syncNow();
@@ -113,25 +116,19 @@ export function SyncGate({ children }: { children: ReactNode }) {
     bannerText = progress
       ? `Syncing… ${progress.done}/${progress.total}`
       : 'Syncing today’s content…';
-  } else if (bannerOffline) {
-    bannerText = `Offline · showing data from ${formatDate(lastSyncedFor)}`;
   } else {
-    bannerText = `Showing data from ${formatDate(lastSyncedFor)} · tap to update`;
+    bannerText = `Offline · showing data from ${formatDate(lastSyncedFor)}`;
   }
 
   const bannerStyle = [
     styles.banner,
     // The app draws edge-to-edge, so the banner sits under the status bar.
     // Pad it by the inset: the colour fills in behind the clock and battery
-    // and the text starts below them. The screen underneath needs no change —
-    // its SafeAreaView pads only by its own overlap with the status bar, which
-    // is none once the banner pushes it down.
+    // and the text starts below them. The screens below are told the banner
+    // is there (StatusBannerProvider) so their headers drop their own
+    // status-bar padding — otherwise it is counted twice.
     { paddingTop: insets.top + 6 },
-    bannerSyncing
-      ? styles.bannerInfo
-      : bannerOffline || bannerSignIn
-        ? styles.bannerOffline
-        : styles.bannerStale,
+    bannerSyncing ? styles.bannerInfo : styles.bannerOffline,
   ];
 
   return (
@@ -149,7 +146,9 @@ export function SyncGate({ children }: { children: ReactNode }) {
           </Text>
         </View>
       ) : null}
-      <View style={styles.flex}>{children}</View>
+      <StatusBannerProvider value={showBanner}>
+        <View style={styles.flex}>{children}</View>
+      </StatusBannerProvider>
     </View>
   );
 }
@@ -188,7 +187,6 @@ const styles = StyleSheet.create({
   },
   bannerInfo: { backgroundColor: Colors.primary },
   bannerOffline: { backgroundColor: Colors.danger },
-  bannerStale: { backgroundColor: Colors.secondary },
   bannerText: {
     color: Colors.textOnDark,
     fontSize: 12,

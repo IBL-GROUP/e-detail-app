@@ -179,7 +179,6 @@ export default function DoctorList() {
 
           </View>
         }
-        ListFooterComponent={<View style={styles.footerSpacer} />}
       />
     </ScreenLayout>
   );
@@ -189,6 +188,8 @@ const styles = StyleSheet.create({
   // Roomier gap: the cards are airier now, so they need space to read as cards.
   content: {
     padding: 16,
+    // The same 16 as the other sides: a gap under the last item, nothing extra.
+    paddingBottom: 16,
     gap: 14,
   },
   // Raised on its own surface so it reads as a bar over the list, not a strip
@@ -289,8 +290,5 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.textMuted,
     textAlign: 'center',
-  },
-  footerSpacer: {
-    height: 24,
   },
 });

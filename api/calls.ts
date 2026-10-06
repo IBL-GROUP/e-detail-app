@@ -70,7 +70,7 @@ export interface CallTrackingInput {
   recording_duration_seconds?: number;
   prescriptions_json?: unknown; // jsonb
   current_medicines_json?: unknown; // jsonb
-  created_by?: number; // user_validation.user_id
+  created_by?: number; // the account's old numeric id (user_login.legacy_user_id); the server resolves it from tsoid
 }
 
 export interface BatchCallItem extends CallTrackingInput {

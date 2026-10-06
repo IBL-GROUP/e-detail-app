@@ -1,8 +1,8 @@
 import { StyleSheet, View, ViewStyle } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
-import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { AppHeader } from '@/components/ui/AppHeader';
+import { useScreenTopInset } from '@/components/ui/ScreenTopInset';
 import { Colors } from '@/constants/theme';
 
 interface ScreenLayoutProps {
@@ -40,8 +40,11 @@ export function ScreenLayout({
   contentStyle,
   showBack = false,
 }: ScreenLayoutProps) {
+  // Below the status bar — or straight below the sync banner, which already
+  // covers it.
+  const topInset = useScreenTopInset();
   return (
-    <SafeAreaView style={styles.safe} edges={['top']}>
+    <View style={[styles.safe, { paddingTop: topInset }]}>
       <AppHeader
         title={title}
         subtitle={subtitle}
@@ -67,7 +70,7 @@ export function ScreenLayout({
       ) : (
         <View style={[styles.flat, contentStyle]}>{children}</View>
       )}
-    </SafeAreaView>
+    </View>
   );
 }
 
@@ -83,7 +86,8 @@ const styles = StyleSheet.create({
   content: {
     padding: 16,
     gap: 14,
-    paddingBottom: 32,
+    // The same 16 as the other sides: a gap under the last item, nothing extra.
+    paddingBottom: 16,
   },
   flat: {
     flex: 1,

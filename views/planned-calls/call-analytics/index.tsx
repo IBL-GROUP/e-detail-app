@@ -16,7 +16,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useScreenTopInset } from '@/components/ui/ScreenTopInset';
 import { CALL_KIND_LABELS, CallType, type CallKind } from '../callTypes';
 import { MonthlyCallSummary } from './MonthlyCallSummary';
 
@@ -281,6 +281,7 @@ export default function CallAnalytics({
   returnToNewDoctor = false,
 }: CallAnalyticsProps) {
   const isCombined = mode === 'combined';
+  const topInset = useScreenTopInset();
 
   /**
    * Both arrive as the comma-joined strings the summary submitted, with a
@@ -440,7 +441,7 @@ export default function CallAnalytics({
   return (
     <View style={styles.screen}>
       <View style={styles.header}>
-        <SafeAreaView edges={['top']}>
+        <View style={{ paddingTop: topInset }}>
           <View style={styles.headerTopRow}>
             <Pressable
               onPress={handleBackPress}
@@ -449,7 +450,7 @@ export default function CallAnalytics({
               <Ionicons name="chevron-back" size={20} color={Colors.textOnDark} />
             </Pressable>
           </View>
-        </SafeAreaView>
+        </View>
 
         <View style={styles.headerProfile}>
           <View style={styles.headerIconCard}>
@@ -905,7 +906,7 @@ const styles = StyleSheet.create({
   content: {
     padding: 16,
     gap: 14,
-    paddingBottom: 36,
+    paddingBottom: 16,
   },
   // Two across, so the pair reads as one row rather than two full-width slabs.
   metricGrid: {

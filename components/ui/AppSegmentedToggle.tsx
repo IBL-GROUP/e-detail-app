@@ -28,6 +28,12 @@ interface AppSegmentedToggleProps<T extends string> {
    * better spanning the page.
    */
   fullWidth?: boolean;
+  /**
+   * The toggle sits in a horizontal ScrollView: every segment keeps its whole
+   * label and the row scrolls, instead of squeezing each label down to "Ph…"
+   * to fit the screen width.
+   */
+  scrollable?: boolean;
   style?: ViewStyle;
 }
 
@@ -43,11 +49,20 @@ export function AppSegmentedToggle<T extends string>({
   onChange,
   variant = 'pill',
   fullWidth = false,
+  scrollable = false,
   style,
 }: AppSegmentedToggleProps<T>) {
   const box = variant === 'box';
   return (
-    <View style={[styles.track, box && styles.trackBox, fullWidth && styles.trackFull, style]}>
+    <View
+      style={[
+        styles.track,
+        box && styles.trackBox,
+        fullWidth && styles.trackFull,
+        scrollable && styles.trackScrollable,
+        style,
+      ]}
+    >
       {options.map((option) => {
         const active = option.key === value;
         return (
@@ -58,6 +73,7 @@ export function AppSegmentedToggle<T extends string>({
               styles.pill,
               box && styles.pillBox,
               fullWidth && styles.pillFull,
+              scrollable && styles.noShrink,
               active && styles.pillActive,
               active && box && styles.pillActiveBox,
               pressed && !active && styles.pressed,
@@ -71,7 +87,12 @@ export function AppSegmentedToggle<T extends string>({
               />
             ) : null}
             <Text
-              style={[styles.label, box && styles.labelBox, active && styles.labelActive]}
+              style={[
+                styles.label,
+                box && styles.labelBox,
+                scrollable && styles.noShrink,
+                active && styles.labelActive,
+              ]}
               numberOfLines={1}
             >
               {option.label}
@@ -110,6 +131,15 @@ const styles = StyleSheet.create({
   pillFull: {
     // Equal shares of the track, whatever each label's length.
     flex: 1,
+  },
+  trackScrollable: {
+    // No cap: the ScrollView around it provides the room.
+    maxWidth: undefined,
+    // Aligned to the start of the row, not centred in it.
+    alignSelf: 'flex-start',
+  },
+  noShrink: {
+    flexShrink: 0,
   },
   pill: {
     flexShrink: 1,

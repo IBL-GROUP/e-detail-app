@@ -227,7 +227,6 @@ export default function Patients() {
             ) : null}
           </View>
         }
-        ListFooterComponent={<View style={styles.footerSpacer} />}
       />
 
       <AddPatientModal
@@ -252,6 +251,8 @@ export default function Patients() {
 const styles = StyleSheet.create({
   content: {
     padding: 16,
+    // The same 16 as the other sides: a gap under the last item, nothing extra.
+    paddingBottom: 16,
     gap: 14,
   },
   // Raised on its own surface so it reads as a bar over the list — the same
@@ -332,8 +333,5 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.textMuted,
     textAlign: 'center',
-  },
-  footerSpacer: {
-    height: 24,
   },
 });

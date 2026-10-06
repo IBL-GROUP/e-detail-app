@@ -1,4 +1,4 @@
-import { DarkTheme, DefaultTheme, ThemeProvider } from '@react-navigation/native';
+import { DefaultTheme, ThemeProvider } from '@react-navigation/native';
 import { Stack, useRootNavigationState, useRouter, useSegments } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import 'react-native-reanimated';
@@ -9,7 +9,6 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { KeyboardProvider } from 'react-native-keyboard-controller';
 import { useFonts } from 'expo-font';
 
-import { useColorScheme } from '@/hooks/use-color-scheme';
 import { Colors } from '@/constants/theme';
 import { AuthProvider, useAuth } from '@/providers/AuthProvider';
 import { AppQueryProvider } from '@/providers/QueryProvider';
@@ -71,7 +70,6 @@ function AuthGate() {
 }
 
 export default function RootLayout() {
-  const colorScheme = useColorScheme();
   const [fontsLoaded] = useFonts(AppFonts);
 
   // Register the unattended overnight sync (best-effort; OS-scheduled).
@@ -102,10 +100,14 @@ export default function RootLayout() {
           <AuthProvider>
             <OutboxProvider>
               <SyncProvider>
-                <TamaguiProvider config={config} defaultTheme={colorScheme === 'dark' ? 'dark' : 'light'}>
-                  <ThemeProvider value={colorScheme === 'dark' ? DarkTheme : DefaultTheme}>
+                {/* Light only, whatever the phone is set to: the screens are
+                    designed on light surfaces, and following dark mode turned
+                    the tab bar and navigation backgrounds black under them
+                    and drew white status-bar icons on the white headers. */}
+                <TamaguiProvider config={config} defaultTheme="light">
+                  <ThemeProvider value={DefaultTheme}>
                     <AuthGate />
-                    <StatusBar style="auto" />
+                    <StatusBar style="dark" />
                   </ThemeProvider>
                 </TamaguiProvider>
               </SyncProvider>

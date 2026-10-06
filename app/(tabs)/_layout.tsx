@@ -4,7 +4,6 @@ import React from 'react';
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
 
 // Default tab after entering (tabs) is Analytics.
 export const unstable_settings = {
@@ -12,15 +11,21 @@ export const unstable_settings = {
 };
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
-
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
+        // Always the light bar: every screen above it is designed light-only,
+        // and following the phone's dark mode turned just this bar black.
+        tabBarActiveTintColor: Colors.primary,
+        tabBarInactiveTintColor: Colors.textMuted,
+        tabBarStyle: {
+          backgroundColor: Colors.surface,
+          borderTopColor: Colors.border,
+          borderTopWidth: 1,
+        },
         headerShown: false,
         tabBarButton: HapticTab,
-        tabBarLabelStyle: { fontSize: 14 },
+        tabBarLabelStyle: { fontSize: 13, fontWeight: '600' },
       }}>
       <Tabs.Screen
         name="index"

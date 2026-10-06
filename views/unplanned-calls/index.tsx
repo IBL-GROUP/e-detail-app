@@ -227,8 +227,6 @@ export default function UnplannedCalls() {
     );
   };
 
-  const renderFooter = () => <View style={styles.footerSpacer} />;
-
   return (
     <ScreenLayout title="Unplanned Calls" notificationCount={1} scrollable={false}>
       <FlatList
@@ -315,7 +313,6 @@ export default function UnplannedCalls() {
             ) : null}
           </View>
         }
-        ListFooterComponent={renderFooter}
       />
 
       <Modal visible={pickerVisible} transparent animationType="fade" onRequestClose={() => closePicker()}>
@@ -401,7 +398,8 @@ export default function UnplannedCalls() {
 const styles = StyleSheet.create({
   content: {
     padding: 16,
-    paddingBottom: 32,
+    // The same 16 as the other sides: a gap under the last item, nothing extra.
+    paddingBottom: 16,
     gap: 10,
   },
   section: {
@@ -459,9 +457,6 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.textMuted,
     fontWeight: '600',
-  },
-  footerSpacer: {
-    height: 12,
   },
   modalBackdrop: {
     flex: 1,
