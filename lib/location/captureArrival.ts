@@ -126,6 +126,23 @@ export async function ensureLocationAccess(): Promise<LocationFailure | null> {
 }
 
 /**
+ * Stops a position watcher without ever throwing.
+ *
+ * expo-location's WEB build (SDK 54) crashes on remove() —
+ * "LocationEventEmitter.removeSubscription is not a function" — because its web
+ * event emitter lacks that method. Called from a screen's blur/unmount cleanup,
+ * that took the whole screen down in the browser. On a phone remove() works;
+ * this only keeps the web build (local testing) from falling over.
+ */
+function stopWatching(subscription: Location.LocationSubscription | null | undefined) {
+  try {
+    subscription?.remove();
+  } catch (error) {
+    console.log('[location] could not stop the watcher', (error as Error)?.message ?? error);
+  }
+}
+
+/**
  * Starts listening for position while a doctor screen is open, so that by the
  * time the rep taps Arrived the GPS has usually got a fix already. Only runs
  * when permission is already granted — it never prompts on its own. Returns a
@@ -143,7 +160,7 @@ export function startLocationWarmup(): () => void {
         { accuracy: Location.Accuracy.High, timeInterval: 3_000, distanceInterval: 0 },
         remember,
       );
-      if (stopped) sub.remove();
+      if (stopped) stopWatching(sub);
       else subscription = sub;
     } catch {
       // Location off / unavailable — the capture itself will say so.
@@ -152,7 +169,7 @@ export function startLocationWarmup(): () => void {
 
   return () => {
     stopped = true;
-    subscription?.remove();
+    stopWatching(subscription);
     subscription = null;
   };
 }
@@ -208,12 +225,12 @@ async function listenForFix(timeoutMs: number): Promise<Fix | null> {
     )
       .then((sub) => {
         watch.subscription = sub;
-        if (settled) sub.remove();
+        if (settled) stopWatching(sub);
       })
       .catch(() => finish(null));
   });
 
-  watch.subscription?.remove();
+  stopWatching(watch.subscription);
   return result;
 }
 

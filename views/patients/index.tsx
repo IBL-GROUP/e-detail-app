@@ -225,6 +225,9 @@ export default function Patients() {
         onEndReached={handleLoadMore}
         onEndReachedThreshold={0.35}
         ListHeaderComponent={
+          // Only when there is a state to show: an empty header still takes the
+          // list's item gap, which left a wide band above the first patient.
+          !patientsQuery.isLoading && patients.length > 0 ? null : (
           <View style={styles.header}>
             {patientsQuery.isLoading ? (
               <View style={styles.stateCard}>
@@ -244,6 +247,7 @@ export default function Patients() {
               </View>
             ) : null}
           </View>
+          )
         }
       />
 
@@ -269,8 +273,12 @@ export default function Patients() {
 
 const styles = StyleSheet.create({
   content: {
+    // The same spacing as the doctors screen (planned-calls): there the Call
+    // Type card sits 14 below the search card's 4 bottom margin — 18 in all —
+    // so the first patient does too.
     padding: 16,
-    // The same 16 as the other sides: a gap under the last item, nothing extra.
+    paddingTop: 14,
+    // The same 16 as the sides: a gap under the last item, nothing extra.
     paddingBottom: 16,
     gap: 14,
   },

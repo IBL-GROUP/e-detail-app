@@ -2,7 +2,7 @@
   "expo": {
     "name": "Searle E-Detailing",
     "slug": "my-rn-app",
-    "version": "1.0.10",
+    "version": "1.0.11",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "myrnapp",
@@ -19,7 +19,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "versionCode": 38
+      "versionCode": 39
     },
     "web": {
       "output": "static",
