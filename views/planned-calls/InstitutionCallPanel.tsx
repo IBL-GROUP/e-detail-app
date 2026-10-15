@@ -12,6 +12,7 @@ import { CancelCallModal } from './doctor-detail/CancelCallModal';
 import { StartCallButton } from './doctor-detail/StartCallButton';
 import { ABANDONED_CANCEL_REASON, recordCancelledCall } from './recordCancelledCall';
 import type { ArrivalCapture } from '@/lib/location/captureArrival';
+import { explainNoContent, usePreloadCallDeck } from '@/views/planned-calls/usePreloadCallDeck';
 
 /**
  * Group calls: several doctors at once, picked at the End of the call, with
@@ -38,6 +39,13 @@ export function InstitutionCallPanel() {
     [specialties, selectedSpecialtyName],
   );
   const hasSpecialty = Boolean(selectedSpecialty);
+  // A group deck depends on the specialty picked and is not in the daily sync,
+  // so load it (and put its images on the device) as soon as one is chosen.
+  const { status: deckStatus } = usePreloadCallDeck({
+    teamId: Number(user?.teamId) || undefined,
+    specialtyId: selectedSpecialty?.specialty_id,
+    mieId: user?.mieId ? String(user.mieId) : undefined,
+  });
 
   // A group call picks its doctors at the END (in the call summary), so the
   // panel only needs a specialty before Arrive.
@@ -66,7 +74,7 @@ export function InstitutionCallPanel() {
    * starting or cancelling it — recorded so the arrival is not lost. The row
    * carries the chosen specialty, the same as a cancelled group call does.
    */
-  const { arrived, arrival, toggleArrived, reset, consume } = useArrival({
+  const { arrived, arrival, locating, ready, toggleArrived, reset, consume } = useArrival({
     onAbandon: (captured) => {
       const details = buildCancelDetails(captured);
       if (!details.tsoid) return;
@@ -107,6 +115,11 @@ export function InstitutionCallPanel() {
   };
 
   const handleStartCall = () => {
+    // No content for this specialty, no call. Say why, and stay.
+    if (deckStatus !== 'ready') {
+      explainNoContent(deckStatus);
+      return;
+    }
     // The arrival is now this call's, so leaving this tab must NOT report it
     // as a walk-away.
     consume();
@@ -152,15 +165,28 @@ export function InstitutionCallPanel() {
 
       <View style={styles.buttonsRow}>
         <View style={styles.buttonCellFull}>
-          <ArrivedButton arrived={arrived} enabled={readyToArrive} onPress={toggleArrived} />
+          <ArrivedButton
+            arrived={arrived}
+            locating={locating}
+            enabled={readyToArrive}
+            onPress={toggleArrived}
+          />
         </View>
         <View style={styles.buttonCellHalf}>
-          <StartCallButton enabled={readyToArrive && arrived} onPress={handleStartCall} />
+          {/* Only with a position in hand — see useArrival. */}
+          <StartCallButton enabled={readyToArrive && ready} onPress={handleStartCall} />
         </View>
         <View style={styles.buttonCellHalf}>
-          <CancelCallButton enabled={arrived} onPress={() => setIsCancelVisible(true)} />
+          <CancelCallButton enabled={ready} onPress={() => setIsCancelVisible(true)} />
         </View>
       </View>
+      {deckStatus === 'empty' || deckStatus === 'unavailable' ? (
+        <Text style={styles.noContentNote}>
+          {deckStatus === 'empty'
+            ? 'No content found for this call — it cannot be started.'
+            : 'The content for this call is not on the phone yet — connect and sync to start it.'}
+        </Text>
+      ) : null}
 
       <CancelCallModal
         visible={isCancelVisible}
@@ -206,6 +232,13 @@ const styles = StyleSheet.create({
     color: Colors.textMuted,
     fontSize: 12,
     fontWeight: '500',
+  },
+  noContentNote: {
+    color: Colors.danger,
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: 10,
   },
   buttonsRow: {
     flexDirection: 'row',

@@ -1,6 +1,7 @@
 import Axios from 'axios';
 import { API_BASE_URL } from '@/config/api-base-url';
 import { getAccessToken, isOfflineSessionToken } from '@/lib/auth/tokenStore';
+import { APP_VERSION_WITH_BUILD } from '@/lib/appVersion';
 
 /**
  * Notified when the backend rejects our token (401). AuthProvider subscribes and
@@ -38,6 +39,10 @@ const axios = Axios.create({
   headers: {
     'Content-Type': 'application/json',
     Accept: 'application/json',
+    // Lets the backend's sign-in log tell the app apart from the admin console,
+    // which uses the same /auth/login.
+    'X-Client': 'e-detail-app',
+    'X-App-Version': APP_VERSION_WITH_BUILD,
   },
   timeout: 30000,
 });

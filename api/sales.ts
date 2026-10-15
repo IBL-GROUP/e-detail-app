@@ -1,6 +1,7 @@
 import { useQuery } from '@tanstack/react-query';
 import axios from '@/config/axios';
 import type { CallPeriod } from '@/api/calls';
+import { useOfflineFallback, withOfflineState } from '@/api/offlineFallback';
 
 /**
  * MIE brick-wise sales for the Analytics screen's Sales Performance view.
@@ -118,14 +119,18 @@ export const getMieSales = async (
  * readable offline — they are just never treated as fresh enough to skip a
  * refetch when the screen is opened.
  */
-export const useMieSales = (mieId?: string, period?: CallPeriod) =>
-  useQuery({
+export const useMieSales = (mieId?: string, period?: CallPeriod) => {
+  const query = useQuery({
     queryKey: mieSalesKey(mieId, period),
     queryFn: () => getMieSales(mieId as string, period as CallPeriod),
     enabled: Boolean(mieId && period),
     staleTime: 0,
     refetchOnMount: 'always',
   });
+  // Offline: the latest sales saved for the month (see useOfflineFallback).
+  const fallback = useOfflineFallback<MieSalesSummary>('mie-sales', mieId, period, query.data !== undefined);
+  return { ...query, data: query.data ?? fallback?.data, ...withOfflineState(query, fallback) };
+};
 
 /**
  * Money as the screen writes it: 6,082K, 386K, 940.

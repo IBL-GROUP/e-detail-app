@@ -1,4 +1,5 @@
 import type { Persister, PersistedClient } from '@tanstack/react-query-persist-client';
+import { afterInteractions } from '@/lib/afterInteractions';
 import { readJson, writeJson, removeRaw } from './fileStore';
 
 /**
@@ -7,7 +8,15 @@ import { readJson, writeJson, removeRaw } from './fileStore';
  * Writes are throttled to avoid hammering the file system.
  */
 const CLIENT_KEY = 'react-query-cache';
-const WRITE_THROTTLE_MS = 1500;
+/**
+ * How often, at most, the whole cache is written. Each write turns the ENTIRE
+ * cache — every doctor, every deck, Content, Analytics — into one JSON string on
+ * the JS thread, which is the thread taps run on. At 1.5s a tab switch (which
+ * refreshes that screen's data) reliably set a write going just as the next tap
+ * landed, and the tap waited for it. Fewer writes, and only once the UI is idle
+ * (see flush), keep it out of the way. Sync still saves explicitly at its end.
+ */
+const WRITE_THROTTLE_MS = 4000;
 
 // Bump when the cached data shape changes, to invalidate stale caches.
 // Shared by the React provider and the headless background sync.
@@ -25,11 +34,15 @@ export function createFilePersister(): Persister {
 
   const flush = () => {
     timer = null;
-    if (pending) {
-      const toWrite = pending;
-      pending = null;
-      void writeJson(CLIENT_KEY, toWrite);
-    }
+    // After any transition or touch handling in progress — never in the middle
+    // of one — and never more than 1.5s later, so the write always happens.
+    afterInteractions(() => {
+      if (pending) {
+        const toWrite = pending;
+        pending = null;
+        void writeJson(CLIENT_KEY, toWrite);
+      }
+    });
   };
 
   return {

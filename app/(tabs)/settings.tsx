@@ -152,11 +152,16 @@ export default function SettingsScreen() {
     }
     setPwSubmitting(true);
     try {
-      await changePassword(currentPassword, newPassword);
+      const { queued } = await changePassword(currentPassword, newPassword);
       setCurrentPassword('');
       setNewPassword('');
       setConfirmPassword('');
-      setPwMessage({ type: 'success', text: 'Password updated successfully.' });
+      setPwMessage({
+        type: 'success',
+        text: queued
+          ? 'Password changed on this phone. You are offline — it will be updated on the server automatically when you are back online. Use your new password to sign in.'
+          : 'Password updated successfully.',
+      });
     } catch (error) {
       setPwMessage({
         type: 'error',
@@ -282,7 +287,7 @@ export default function SettingsScreen() {
               <View style={styles.syncActions}>
                 <AppButton
                   label={status === 'syncing' ? 'Syncing…' : 'Sync now'}
-                  onPress={() => void syncNow()}
+                  onPress={() => void syncNow('settings_button')}
                   icon={
                     <Ionicons name="sync-outline" size={18} color={Colors.textOnDark} />
                   }

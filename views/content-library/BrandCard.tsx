@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Image as ExpoImage } from 'expo-image';
+import { OfflineImage } from '@/components/ui/OfflineImage';
 
 import type { TeamBrand } from '@/api/content';
 import { Tag } from '@/components/tag';
@@ -42,8 +42,8 @@ export function BrandCard({ brand }: BrandCardProps) {
               const isLastPreview = position === preview.length - 1;
               return (
                 <View key={url} style={styles.previewTile}>
-                  <ExpoImage
-                    source={{ uri: url }}
+                  <OfflineImage
+                    url={url}
                     style={styles.previewImage}
                     contentFit="cover"
                     transition={150}

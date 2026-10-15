@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { useMemo } from 'react';
 import axios from '@/config/axios';
 import { useLocalCalls } from '@/lib/offline/useLocalCalls';
+import { useOfflineFallback, withOfflineState } from '@/api/offlineFallback';
 import {
   mergeCompletedDoctorIds,
   mergeDoctorSummary,
@@ -228,13 +229,19 @@ export const useMonthlyCallTotals = (mieId?: string, period?: CallPeriod) => {
     staleTime: 5 * 60 * 1000,
   });
   const local = useLocalCalls();
+  // Offline with today's exact range not saved: the latest saved figures for
+  // the month instead (see useOfflineFallback). Its OWN fetch time goes into
+  // the merge, so calls already in those figures are not counted twice.
+  const fallback = useOfflineFallback<MonthlyCallTotals>('monthly-call-totals', mieId, period, query.data !== undefined);
+  const base = query.data ?? fallback?.data;
+  const baseUpdatedAt = query.data !== undefined ? query.dataUpdatedAt : (fallback?.updatedAt ?? 0);
 
   const data = useMemo(
-    () => mergeMonthlyTotals(query.data, local, mieId, query.dataUpdatedAt, period),
-    [query.data, query.dataUpdatedAt, local, mieId, period],
+    () => mergeMonthlyTotals(base, local, mieId, baseUpdatedAt, period),
+    [base, baseUpdatedAt, local, mieId, period],
   );
 
-  return { ...query, data };
+  return { ...query, data, ...withOfflineState(query, fallback) };
 };
 
 /** One bar of an engagement breakdown: a specialty or a brand. */
@@ -279,13 +286,19 @@ export const useEngagement = (mieId?: string, period?: CallPeriod) => {
     staleTime: 5 * 60 * 1000,
   });
   const local = useLocalCalls();
+  // Offline with today's exact range not saved: the latest saved figures for
+  // the month instead (see useOfflineFallback). Its OWN fetch time goes into
+  // the merge, so calls already in those figures are not counted twice.
+  const fallback = useOfflineFallback<EngagementBreakdown>('engagement', mieId, period, query.data !== undefined);
+  const base = query.data ?? fallback?.data;
+  const baseUpdatedAt = query.data !== undefined ? query.dataUpdatedAt : (fallback?.updatedAt ?? 0);
 
   const data = useMemo(
-    () => mergeEngagement(query.data, local, mieId, query.dataUpdatedAt, period),
-    [query.data, query.dataUpdatedAt, local, mieId, period],
+    () => mergeEngagement(base, local, mieId, baseUpdatedAt, period),
+    [base, baseUpdatedAt, local, mieId, period],
   );
 
-  return { ...query, data };
+  return { ...query, data, ...withOfflineState(query, fallback) };
 };
 
 /** One bar of the per-slide breakdown: a single image in the deck. */
@@ -348,14 +361,17 @@ export const useSlideEngagement = (mieId?: string, period?: CallPeriod) => {
     staleTime: 5 * 60 * 1000,
   });
   const local = useLocalCalls();
+  // Offline fallback, as for the totals above.
+  const fallback = useOfflineFallback<SlideEngagementBreakdown>('slide-engagement', mieId, period, query.data !== undefined);
+  const base = query.data ?? fallback?.data;
+  const baseUpdatedAt = query.data !== undefined ? query.dataUpdatedAt : (fallback?.updatedAt ?? 0);
 
   const data = useMemo(
-    () =>
-      mergeSlideEngagement(query.data, local, mieId, query.dataUpdatedAt, period),
-    [query.data, query.dataUpdatedAt, local, mieId, period],
+    () => mergeSlideEngagement(base, local, mieId, baseUpdatedAt, period),
+    [base, baseUpdatedAt, local, mieId, period],
   );
 
-  return { ...query, data };
+  return { ...query, data, ...withOfflineState(query, fallback) };
 };
 
 /** One completed call in the month's history with a doctor. */

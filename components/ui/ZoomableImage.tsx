@@ -49,6 +49,8 @@ interface ZoomableImageProps {
    * to a slide shows it whole, the way it was left on screen for the doctor.
    */
   isActive?: boolean;
+  /** The image could not be loaded — the slide uses it to try its other copy. */
+  onError?: () => void;
 }
 
 const RESET_MS = 180;
@@ -63,6 +65,7 @@ const SNAP_BACK_SCALE = 1.1;
 
 export function ZoomableImage({
   source,
+  onError,
   contentFit = 'contain',
   style,
   maxScale = 4,
@@ -263,6 +266,7 @@ export function ZoomableImage({
             style={styles.fill}
             contentFit={contentFit}
             cachePolicy="memory-disk"
+            onError={onError}
           />
         </Animated.View>
       </View>

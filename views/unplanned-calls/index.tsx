@@ -9,9 +9,9 @@ import { DASH, mapDoctorRows } from '@/views/planned-calls/mapDoctor';
 import { ScheduleSectionHeader } from '@/views/planned-calls/ScheduleSectionHeader';
 import { getCompletedCallIds } from '@/views/planned-calls/callCompletionStore';
 import { consumeReturnToNewDoctor } from '@/views/unplanned-calls/returnToNewDoctorStore';
+import { explainNoContent } from '@/views/planned-calls/usePreloadCallDeck';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect } from '@react-navigation/native';
-import { router } from 'expo-router';
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
@@ -23,6 +23,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import { startLocationWarmup } from '@/lib/location/captureArrival';
 
 // Doctors revealed per scroll, sliced from the fully-cached pool (no network).
 const LIST_PAGE = 30;
@@ -88,6 +89,11 @@ export default function UnplannedCalls() {
     setPickerVisible(true);
     setNewDoctorCallCompleted(true);
   }, [newDoctorDrafts]);
+
+  // Start the GPS while the rep is picking a doctor, so that by the time they
+  // tap Arrived there is usually a fix already — offline, an unassisted GPS
+  // can take 10s or more to find one from cold. Stops when the screen does.
+  useFocusEffect(useCallback(() => startLocationWarmup(), []));
 
   useFocusEffect(
     useCallback(() => {
@@ -202,21 +208,13 @@ export default function UnplannedCalls() {
     closePicker(false);
   };
 
+  /**
+   * A call with a doctor not yet on the list. It cannot be made: forcing content
+   * is assigned by doctor (or specialty), so a doctor who is not on the list has
+   * none, and a call with no content cannot start. Pressing Start says so.
+   */
   const startNewDoctorCall = () => {
-    setPickerVisible(false);
-    setNewDoctorCallCompleted(false);
-    setActivePendingDoctorId(undefined);
-    setNewDoctorForm(emptyNewDoctorForm);
-
-    router.push({
-      pathname: '/call/[id]',
-      params: {
-        id: `new-unplanned-${Date.now()}`,
-        callType: 'unplanned',
-        doctorName: 'New Doctor',
-        returnToNewDoctor: '1',
-      },
-    });
+    explainNoContent('none');
   };
 
   const handleLoadMore = () => {
@@ -375,7 +373,13 @@ export default function UnplannedCalls() {
               />
               <AppButton
                 label={newDoctorCallCompleted ? 'Add Doctor' : 'Start Doctor Call'}
-                onPress={newDoctorCallCompleted ? (isNewDoctorFormValid ? addSelectedDoctor : undefined) : startNewDoctorCall}
+                onPress={
+                  newDoctorCallCompleted
+                    ? isNewDoctorFormValid
+                      ? addSelectedDoctor
+                      : undefined
+                    : startNewDoctorCall
+                }
                 icon={
                   newDoctorCallCompleted
                     ? <Ionicons name="add" size={20} color={Colors.textOnDark} />

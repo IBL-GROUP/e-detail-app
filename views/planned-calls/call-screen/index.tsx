@@ -4,6 +4,7 @@ import * as Crypto from 'expo-crypto';
 import { router } from 'expo-router';
 import { CallHeader } from './CallHeader';
 import { SlideViewer } from './SlideViewer';
+import { AppButton } from '@/components/ui/AppButton';
 import { Slide } from './SlideCard';
 import { CallSummaryData, CallSummaryModal } from './CallSummaryModal';
 import { markCallCompleted } from '../callCompletionStore';
@@ -18,37 +19,6 @@ import { useLockBack } from '@/hooks/use-lock-back';
 import { enqueueCall } from '@/lib/offline/outbox';
 import { nearestClinicVicinity } from '@/lib/location/distance';
 import type { CallTrackingInput } from '@/api/calls';
-
-const DEMO_SLIDES: Slide[] = [
-  {
-    id: '1',
-    brand: 'Searle Pharmaceuticals',
-    title: 'Cardio-Health Pro',
-    subtitle: 'The Next Generation in Cardiac Care',
-    durationSeconds: 10,
-    bullets: ['Once-daily dosing', 'High bioavailability', 'Patient compliance focus'],
-  },
-  {
-    id: '2',
-    brand: 'Searle Pharmaceuticals',
-    title: 'Clinical Efficacy',
-    subtitle: 'Proven results in large-scale trials',
-    durationSeconds: 20,
-    bullets: [
-      '92% reduction in adverse events',
-      'Superior to standard of care',
-      'Recommended by cardiologists',
-    ],
-  },
-  {
-    id: '3',
-    brand: 'Searle Pharmaceuticals',
-    title: 'Safety Profile',
-    subtitle: 'Well tolerated across all age groups',
-    durationSeconds: 30,
-    bullets: ['Minimal side effects', 'No known drug interactions', 'Safe for long-term use'],
-  },
-];
 
 interface CallScreenProps {
   doctorId?: string;
@@ -84,6 +54,7 @@ function mapForcingSlides(slides: DoctorCallSlide[]): Slide[] {
     bullets: slide.bullets,
     durationSeconds: slide.durationSeconds,
     image: slide.image,
+    remoteUri: slide.remoteUri,
     slideId: slide.slideId,
     forcing: slide.forcing,
   }));
@@ -265,13 +236,21 @@ export default function CallScreen({
       ),
     [resolvableRows],
   );
-  const slides = !hasForcingContext
-    ? DEMO_SLIDES
-    : forcingSlidesQuery.data && forcingSlidesQuery.data.length > 0
-      ? mapForcingSlides(forcingSlidesQuery.data)
-      : forcingSlidesQuery.isLoading
-        ? []
-        : DEMO_SLIDES;
+  // Only the doctor's (or specialty's) real forcing content. There used to be
+  // a demo deck here for testing, shown whenever no content came back — on a
+  // live device that put dummy slides in front of a doctor. Now no content
+  // means no call: the doctor screen refuses to start one (usePreloadCallDeck),
+  // and if a call opens without slides anyway it says so instead.
+  const forcingSlides = forcingSlidesQuery.data;
+  const slides = useMemo(
+    () =>
+      hasForcingContext && forcingSlides && forcingSlides.length > 0
+        ? mapForcingSlides(forcingSlides)
+        : [],
+    [hasForcingContext, forcingSlides],
+  );
+  const isLoadingSlides = hasForcingContext && forcingSlidesQuery.isLoading;
+  const hasNoContent = slides.length === 0 && !isLoadingSlides;
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const [slideTimes, setSlideTimes] = useState<number[]>([]);
   const [slidesViewed, setSlidesViewed] = useState(0);
@@ -387,11 +366,13 @@ export default function CallScreen({
 
   // Fire the start record once, when the call screen opens.
   const startRecordedRef = useRef(false);
+  // Held until the slides are in: a call that opens with no content cannot be
+  // made, so it must not leave a 'started' row behind either.
   useEffect(() => {
-    if (startRecordedRef.current) return;
+    if (startRecordedRef.current || slides.length === 0) return;
     startRecordedRef.current = true;
     void recordStartToOutbox();
-  }, [recordStartToOutbox]);
+  }, [recordStartToOutbox, slides.length]);
 
   // Phase 2: build the full call_tracking payload on End Call and hand it to the
   // offline outbox — this UPDATES the 'started' row (same client_call_id).
@@ -667,20 +648,29 @@ export default function CallScreen({
     <View style={styles.screen}>
       <CallHeader elapsedSeconds={elapsedSeconds} canEndCall onEndCall={handleRequestEndCall} />
       <View style={styles.body}>
-        {hasForcingContext && forcingSlidesQuery.isLoading ? (
+        {isLoadingSlides ? (
           <View style={styles.loadingState}>
             <ActivityIndicator size="large" color="#FFFFFF" />
             <Text style={styles.loadingText}>Loading forcing content...</Text>
           </View>
         ) : null}
-        <SlideViewer
-          slides={slides}
-          isPaused={isSummaryVisible || isTimerPaused}
-          onTogglePause={() => setIsTimerPaused((value) => !value)}
-          onElapsedChange={setElapsedSeconds}
-          onSlideTimesChange={setSlideTimes}
-          onSlidesViewedChange={handleSlidesViewedChange}
-        />
+        {hasNoContent ? (
+          <View style={styles.loadingState}>
+            <Text style={styles.loadingText}>
+              No content is available for this call, so it cannot be started.
+            </Text>
+            <AppButton label="Go back" onPress={() => router.back()} />
+          </View>
+        ) : (
+          <SlideViewer
+            slides={slides}
+            isPaused={isSummaryVisible || isTimerPaused}
+            onTogglePause={() => setIsTimerPaused((value) => !value)}
+            onElapsedChange={setElapsedSeconds}
+            onSlideTimesChange={setSlideTimes}
+            onSlidesViewedChange={handleSlidesViewedChange}
+          />
+        )}
       </View>
       <CallSummaryModal
         visible={isSummaryVisible}

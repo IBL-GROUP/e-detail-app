@@ -1,7 +1,13 @@
 import { useFocusEffect } from '@react-navigation/native';
 import { useCallback, useRef, useState } from 'react';
 
-import { captureArrival, type ArrivalCapture } from './captureArrival';
+import {
+  ArrivalLocationError,
+  captureArrival,
+  explainLocationFailure,
+  startLocationWarmup,
+  type ArrivalCapture,
+} from './captureArrival';
 
 export interface UseArrivalOptions {
   /**
@@ -42,10 +48,21 @@ export interface UseArrivalOptions {
  *              in full. Silent, because something else already said what
  *              happened (or nothing happened at all).
  *   neither    the rep walked away. THIS is what onAbandon reports.
+ *
+ * NO LOCATION, NO CALL. Arrived used to enable Start the instant it was tapped,
+ * while the GPS fix was still on its way — a rep who tapped straight through
+ * started the call with no coordinates, and the fix that landed a moment later
+ * was thrown away. Offline, where a first fix takes longest, that was most
+ * calls. Now `locating` covers the wait and `ready` only turns true once a
+ * real position is in hand; the callers enable Start and Cancel on `ready`.
+ * If no position can be had, the arrival is withdrawn and the rep is told why
+ * (permission, location switched off, no signal) with a way to fix it.
  */
 export function useArrival({ onAbandon }: UseArrivalOptions = {}) {
   const [arrived, setArrived] = useState(false);
   const [arrival, setArrival] = useState<ArrivalCapture | null>(null);
+  /** True while the position for this arrival is being fetched. */
+  const [locating, setLocating] = useState(false);
   const arrivedRef = useRef(false);
   // The captured position, mirrored into a ref: the blur handler below runs
   // outside React's render cycle and cannot read state.
@@ -78,18 +95,37 @@ export function useArrival({ onAbandon }: UseArrivalOptions = {}) {
     arrivedRef.current = true;
     settledRef.current = false;
     setArrived(true);
-    // Provisional timestamp so arrived_time exists even before the GPS fix.
+    setLocating(true);
+    // Provisional timestamp so arrived_time exists even before the GPS fix —
+    // a walk-away during the wait is still recorded with when it happened.
     applyArrival({ arrivedTime: new Date().toISOString() });
-    const captured = await captureArrival();
-    // Ignore the fix if the user cancelled while it was resolving.
-    if (arrivedRef.current) applyArrival(captured);
+    try {
+      const captured = await captureArrival();
+      // Ignore the fix if the user cancelled while it was resolving.
+      if (arrivedRef.current) applyArrival(captured);
+    } catch (error) {
+      if (!arrivedRef.current) return;
+      // No position: the arrival does not stand. Withdraw it silently (nothing
+      // happened yet) and tell the rep what to do about it.
+      arrivedRef.current = false;
+      setArrived(false);
+      applyArrival(null);
+      const reason = error instanceof ArrivalLocationError ? error.reason : 'no_fix';
+      explainLocationFailure(reason, () => void markArrivedRef.current?.());
+    } finally {
+      setLocating(false);
+    }
   }, [applyArrival]);
+  // For the "Try again" button in the failure alert, which outlives this render.
+  const markArrivedRef = useRef<(() => Promise<void>) | null>(null);
+  markArrivedRef.current = markArrived;
 
   /** Withdraw the arrival without recording anything. */
   const reset = useCallback(() => {
     arrivedRef.current = false;
     settledRef.current = false;
     setArrived(false);
+    setLocating(false);
     applyArrival(null);
   }, [applyArrival]);
 
@@ -113,9 +149,13 @@ export function useArrival({ onAbandon }: UseArrivalOptions = {}) {
       // or cancelled. Arriving is the first step of a call, so the next one
       // starts from scratch — and a fresh GPS fix.
       reset();
+      // Listen for position while the screen is open, so the fix is usually
+      // ready by the time the rep taps Arrived.
+      const stopWarmup = startLocationWarmup();
 
       // Leaving it with an arrival still outstanding is the walk-away.
       return () => {
+        stopWarmup();
         if (!arrivedRef.current || settledRef.current) return;
         // Marked before the callback runs, so a blur followed by an unmount
         // cannot report the same walk-away twice.
@@ -125,5 +165,12 @@ export function useArrival({ onAbandon }: UseArrivalOptions = {}) {
     }, [reset]),
   );
 
-  return { arrived, arrival, toggleArrived, reset, consume };
+  /**
+   * The arrival carries a real position. Start Call and Cancel Call are
+   * enabled on this, never on `arrived` alone.
+   */
+  const ready =
+    arrived && !locating && arrival?.latitude != null && arrival?.longitude != null;
+
+  return { arrived, arrival, locating, ready, toggleArrived, reset, consume };
 }

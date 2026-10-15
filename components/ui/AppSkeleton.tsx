@@ -35,12 +35,17 @@ export function AppSkeleton({
           duration: 750,
           easing: Easing.inOut(Easing.ease),
           useNativeDriver: true,
+          // A placeholder pulse never ends; it must not count as an
+          // "interaction" that holds back saves waiting for the UI to be idle
+          // (native already treats it so; on web it would not without this).
+          isInteraction: false,
         }),
         Animated.timing(pulse, {
           toValue: 0,
           duration: 750,
           easing: Easing.inOut(Easing.ease),
           useNativeDriver: true,
+          isInteraction: false,
         }),
       ]),
     );

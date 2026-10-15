@@ -26,6 +26,11 @@ export default function TabLayout() {
         headerShown: false,
         tabBarButton: HapticTab,
         tabBarLabelStyle: { fontSize: 13, fontWeight: '600' },
+        // A tab that is not on screen stops re-rendering until it is shown
+        // again. Without this every tab visited stays live in the background
+        // and redraws on each data change (a sync, a queued call, an Analytics
+        // refetch) — work on the same thread the next tap is waiting on.
+        freezeOnBlur: true,
       }}>
       <Tabs.Screen
         name="index"

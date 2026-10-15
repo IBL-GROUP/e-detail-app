@@ -34,7 +34,7 @@ import { useSummaryMetrics } from '@/lib/analytics/summaryMetrics';
 import { useAuth } from '@/providers/AuthProvider';
 import { mapDoctorRows } from '@/views/planned-calls/mapDoctor';
 import { Ionicons } from '@expo/vector-icons';
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   ScrollView,
@@ -43,6 +43,9 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
+import { useIsOnline } from '@/api/offlineFallback';
+import { useAfterInteractions } from '@/hooks/use-after-interactions';
+import { setScreenView } from '@/lib/usage/usageLog';
 
 const callVolumeData: LineChartDataPoint[] = [
   { label: 'Jan', value: 45 },
@@ -277,6 +280,7 @@ function formatRangeLabel(start: Date, end: Date) {
 }
 
 export default function AnalyticsScreen() {
+  const contentReady = useAfterInteractions();
   const { user } = useAuth();
   const { width } = useWindowDimensions();
   /**
@@ -317,6 +321,12 @@ export default function AnalyticsScreen() {
   );
   const [isExporting, setIsExporting] = useState(false);
   const [view, setView] = useState<PerformanceView>('call');
+  // Tell the usage log which of the two views is on screen, so Analytics time
+  // is split into Call Performance and Sales Performance.
+  useEffect(() => {
+    setScreenView('analytics', view);
+    return () => setScreenView('analytics', null);
+  }, [view]);
   const isSales = view === 'sales';
   /**
    * Value or units, held PER CHART — brand, SKU and brick each keep their own.
@@ -429,6 +439,35 @@ export default function AnalyticsScreen() {
    */
   const salesQuery = useMieSales(user?.mieId, callPeriod);
   const sales = salesQuery.data;
+
+  /**
+   * Offline, the figures come from what this phone saved (see
+   * useOfflineFallback) — say so, and from when, so nobody reads yesterday's
+   * numbers as today's. Nothing saved for the month at all is said plainly
+   * too, rather than left looking like an empty period.
+   */
+  const isOnline = useIsOnline();
+  const offlineSources = isSales
+    ? [salesQuery]
+    : [monthlyTotalsQuery, engagementQuery, slideEngagementQuery];
+  const savedAt = offlineSources
+    .map((q) => q.offlineFallback?.updatedAt ?? (q.data !== undefined ? q.dataUpdatedAt : 0))
+    .filter((t) => t > 0);
+  const nothingSaved = offlineSources.every((q) => q.isUnavailableOffline);
+  const offlineNote = isOnline
+    ? null
+    : nothingSaved
+      ? 'You are offline and no figures for this month are saved on this phone yet. They will appear after your next sync.'
+      : `You are offline — showing the figures saved on this phone${
+          savedAt.length
+            ? ` (as of ${new Date(Math.min(...savedAt)).toLocaleString('en-GB', {
+                day: 'numeric',
+                month: 'short',
+                hour: '2-digit',
+                minute: '2-digit',
+              })})`
+            : ''
+        }. Calls made on this phone since then are included.`;
   /**
    * True while the period's sales are being fetched — whether or not something
    * is already cached for it. Showing 0 in the meantime would be
@@ -697,6 +736,25 @@ export default function AnalyticsScreen() {
     }
   };
 
+  // The tab appears the moment it is tapped; the cards and charts — a lot to
+  // render — draw right after, with the same placeholders a refetch uses.
+  if (!contentReady) {
+    return (
+      <ScreenLayout
+        title="Analytics"
+        subtitle="View Sales & Call Performance"
+        contentStyle={styles.content}
+      >
+        <View style={styles.skeletonStats}>
+          <AppSkeletonStat />
+          <AppSkeletonStat />
+        </View>
+        <AppSkeletonChart />
+        <AppSkeletonChart />
+      </ScreenLayout>
+    );
+  }
+
   return (
     <ScreenLayout
       title="Analytics"
@@ -789,6 +847,8 @@ export default function AnalyticsScreen() {
         onChange={setView}
         fullWidth
       />
+
+      {offlineNote ? <Text style={styles.offlineNote}>{offlineNote}</Text> : null}
 
       <View style={styles.rfiCard}>
         <View style={styles.rfiHeader}>
@@ -1096,6 +1156,20 @@ export default function AnalyticsScreen() {
 }
 
 const styles = StyleSheet.create({
+  skeletonStats: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  offlineNote: {
+    backgroundColor: Colors.warningBg,
+    color: Colors.warning,
+    fontSize: 13,
+    fontWeight: '600',
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 12,
+    overflow: 'hidden',
+  },
   content: {
     gap: 18,
     paddingBottom: 16,

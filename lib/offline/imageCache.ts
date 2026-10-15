@@ -48,6 +48,22 @@ async function ensureDir(): Promise<void> {
   }
 }
 
+/** Downloads already running, so two screens asking at once fetch an image once. */
+const inFlight = new Map<string, Promise<void>>();
+/** Parallel downloads — a few at once, so the first slides land first. */
+const PRELOAD_CONCURRENCY = 3;
+
+async function downloadOne(url: string): Promise<void> {
+  if (!IMAGES_DIR) return;
+  const existing = manifest[url];
+  if (existing) {
+    const info = await FileSystem.getInfoAsync(existing);
+    if (info.exists) return;
+  }
+  const result = await FileSystem.downloadAsync(url, `${IMAGES_DIR}${hashUrl(url)}`);
+  if (result.status >= 200 && result.status < 300) manifest[url] = result.uri;
+}
+
 export interface DownloadProgress {
   total: number;
   done: number;
@@ -74,28 +90,29 @@ export async function syncImages(
   const total = wanted.length;
   let done = 0;
 
-  // Download anything missing (or whose file vanished).
-  for (const url of wanted) {
-    try {
-      const existing = manifest[url];
-      const existingInfo = existing
-        ? await FileSystem.getInfoAsync(existing)
-        : null;
-
-      if (!existing || !existingInfo?.exists) {
-        const target = `${IMAGES_DIR}${hashUrl(url)}`;
-        const result = await FileSystem.downloadAsync(url, target);
-        if (result.status >= 200 && result.status < 300) {
-          manifest[url] = result.uri;
+  // Download anything missing (or whose file vanished), a few at a time —
+  // one after another made a big deck take minutes on a slow connection. A
+  // download the doctor screen's preload already started is joined, not
+  // repeated (inFlight).
+  const queue = [...wanted];
+  const worker = async () => {
+    for (let url = queue.shift(); url; url = queue.shift()) {
+      try {
+        let job = inFlight.get(url);
+        if (!job) {
+          job = downloadOne(url).finally(() => inFlight.delete(url));
+          inFlight.set(url, job);
         }
+        await job;
+      } catch (error) {
+        console.warn('[offline] image download failed', url, error);
+      } finally {
+        done += 1;
+        onProgress?.({ total, done });
       }
-    } catch (error) {
-      console.warn('[offline] image download failed', url, error);
-    } finally {
-      done += 1;
-      onProgress?.({ total, done });
     }
-  }
+  };
+  await Promise.all(Array.from({ length: PRELOAD_CONCURRENCY }, worker));
 
   // Prune cached images no longer referenced.
   const keep = new Set(wanted);
@@ -113,6 +130,42 @@ export async function syncImages(
   }
 
   await writeJson(MANIFEST_KEY, manifest);
+}
+
+/**
+ * Makes sure these images are on the device, downloading only the missing
+ * ones, in deck order. Unlike syncImages it prunes nothing — it tops up the
+ * cache for one deck. Used to preload a call's slides while the rep is still
+ * on the doctor's screen, so a deck that changed since the last sync (or
+ * whose download failed then) does not have to come over a weak connection
+ * once the call has started. Best-effort: a failed download is skipped.
+ */
+export async function ensureImagesCached(urls: string[]): Promise<void> {
+  await loadImageManifest();
+  if (Platform.OS === 'web' || !IMAGES_DIR) return;
+  await ensureDir();
+
+  // downloadOne skips anything already on disk, so every URL can go in.
+  const queue = [...new Set(urls.filter(Boolean))];
+  let added = false;
+
+  const worker = async () => {
+    for (let url = queue.shift(); url; url = queue.shift()) {
+      const had = manifest[url];
+      let job = inFlight.get(url);
+      if (!job) {
+        job = downloadOne(url)
+          .catch((error) => console.warn('[offline] preload failed', url, error))
+          .finally(() => inFlight.delete(url));
+        inFlight.set(url, job);
+      }
+      await job;
+      if (manifest[url] && manifest[url] !== had) added = true;
+    }
+  };
+  await Promise.all(Array.from({ length: PRELOAD_CONCURRENCY }, worker));
+
+  if (added) await writeJson(MANIFEST_KEY, manifest);
 }
 
 /** Wipe all cached images + manifest (used on logout). */
