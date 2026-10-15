@@ -4,6 +4,7 @@ import * as TaskManager from 'expo-task-manager';
 import { readStoredSession } from '@/providers/AuthProvider';
 import { runSync } from '@/lib/offline/runSync';
 import { getSyncMeta, todayWorkday } from '@/lib/offline/syncMeta';
+import { flushUsageToDisk, recordUsageEvent } from '@/lib/usage/usageLog';
 
 export const BACKGROUND_SYNC_TASK = 'e-detail-background-sync';
 
@@ -30,7 +31,28 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
       return BackgroundTask.BackgroundTaskResult.Success;
     }
 
-    await runSync({ mieId: user.mieId, teamId: user.teamId });
+    // Logged for the usage report as an automatic sync. The event waits in the
+    // on-device queue and is uploaded the next time the app is open and online.
+    const startedAt = Date.now();
+    const logSync = (outcome: 'success' | 'error', error?: unknown) =>
+      recordUsageEvent('sync', user, {
+        trigger: 'auto',
+        source: 'background',
+        outcome,
+        started_at: new Date(startedAt).toISOString(),
+        seconds: Math.round((Date.now() - startedAt) / 1000),
+        error: error ? String((error as Error)?.message ?? error).slice(0, 300) : null,
+      });
+    try {
+      await runSync({ mieId: user.mieId, teamId: user.teamId });
+    } catch (error) {
+      await logSync('error', error);
+      await flushUsageToDisk();
+      throw error;
+    }
+    await logSync('success');
+    // A headless run ends when this returns — write now, not after a delay.
+    await flushUsageToDisk();
     return BackgroundTask.BackgroundTaskResult.Success;
   } catch (error) {
     console.warn('[bg-sync] failed', error);

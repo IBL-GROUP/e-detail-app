@@ -196,7 +196,7 @@ export function SyncDetailsModal({ visible, onClose, backlog }: SyncDetailsModal
     setIsSubmitting(true);
     try {
       await flushNow();
-      await syncNow();
+      await syncNow('sync_details');
     } catch (error) {
       console.warn('[sync] manual sync failed', error);
     } finally {

@@ -16,8 +16,30 @@ import { loadImageManifest, type DownloadProgress } from '@/lib/offline/imageCac
 import { getSyncMeta, todayWorkday } from '@/lib/offline/syncMeta';
 import { runSync } from '@/lib/offline/runSync';
 import { seedPlannedFromBulk } from '@/lib/offline/plannedBulk';
+import { flushUsage, recordUsageEvent } from '@/lib/usage/usageLog';
+import { prefetchAnalytics } from '@/lib/offline/prefetchAnalytics';
 
 type SyncStatus = 'idle' | 'syncing' | 'success' | 'error';
+
+/**
+ * Where a sync came from, for the usage log. The first four are the rep
+ * pressing something; the rest the app deciding to sync by itself (the
+ * overnight background task logs "background" from lib/offline/backgroundSync).
+ */
+export type SyncSource =
+  | 'settings_button'
+  | 'sync_gate_button'
+  | 'status_banner'
+  | 'sync_details'
+  | 'login_or_open'
+  | 'stale_catchup';
+
+const MANUAL_SOURCES = new Set<SyncSource>([
+  'settings_button',
+  'sync_gate_button',
+  'status_banner',
+  'sync_details',
+]);
 
 interface SyncContextValue {
   status: SyncStatus;
@@ -30,10 +52,14 @@ interface SyncContextValue {
   isStale: boolean;
   /** True when there is no synced data at all. */
   hasNoData: boolean;
-  syncNow: () => Promise<void>;
+  /** Runs a sync. `source` says what asked for it — see SyncSource. */
+  syncNow: (source: SyncSource) => Promise<void>;
 }
 
 const SyncContext = createContext<SyncContextValue | undefined>(undefined);
+
+/** Slowest the sync progress counter may update. */
+const PROGRESS_INTERVAL_MS = 250;
 
 export function SyncProvider({ children }: { children: ReactNode }) {
   const { user, isAuthenticated: isSignedIn, isOfflineSession } = useAuth();
@@ -107,7 +133,9 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     void seedPlannedFromBulk(Number(user.teamId), String(user.mieId));
   }, [isHydrated, user?.mieId, user?.teamId]);
 
-  const syncNow = useCallback(async () => {
+  const syncNow = useCallback(async (source: SyncSource) => {
+    // A press while a sync is already running is not a second sync, and is
+    // not logged as one.
     if (runningRef.current) return;
     const mieId = user?.mieId;
     const teamId = user?.teamId;
@@ -116,13 +144,38 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     runningRef.current = true;
     setStatus('syncing');
     setProgress(null);
+    const startedAt = Date.now();
+    const logSync = (outcome: 'success' | 'error', error?: unknown) =>
+      void recordUsageEvent('sync', user, {
+        trigger: MANUAL_SOURCES.has(source) ? 'manual' : 'auto',
+        source,
+        outcome,
+        started_at: new Date(startedAt).toISOString(),
+        seconds: Math.round((Date.now() - startedAt) / 1000),
+        error: error ? String((error as Error)?.message ?? error).slice(0, 300) : null,
+      });
 
     try {
-      await runSync({ mieId, teamId, onProgress: setProgress });
+      // At most a few progress updates a second (and always the last one): each
+      // one re-renders everything reading this context, and a per-image update
+      // on a big deck was enough on its own to make the app feel stuck.
+      let lastProgressAt = 0;
+      const onProgress = (next: DownloadProgress) => {
+        const now = Date.now();
+        if (next.done < next.total && now - lastProgressAt < PROGRESS_INTERVAL_MS) return;
+        lastProgressAt = now;
+        setProgress(next);
+      };
+      await runSync({ mieId, teamId, onProgress });
       const meta = await getSyncMeta();
       setLastSyncedFor(meta.lastSyncedFor);
       setLastSyncedAt(meta.lastSyncedAt);
       setStatus('success');
+      logSync('success');
+      // A good moment to upload the usage queue: the network just worked.
+      void flushUsage();
+      // And to fetch this month's Analytics, so that screen works offline too.
+      prefetchAnalytics(mieId);
       // Re-arm the day catch-up below. It used to stay spent after the first
       // success, so an app left open overnight never pulled the next day's
       // data and sat on yesterday's until it was restarted.
@@ -130,11 +183,12 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.warn('[sync] failed', error);
       setStatus('error');
+      logSync('error', error);
     } finally {
       setProgress(null);
       runningRef.current = false;
     }
-  }, [user?.mieId, user?.teamId, isAuthenticated]);
+  }, [user, isAuthenticated]);
 
   const isStale = isHydrated && lastSyncedFor !== todayWorkday();
   const hasNoData = isHydrated && lastSyncedFor === null;
@@ -157,7 +211,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     if (loginSyncedForRef.current === uid) return;
 
     loginSyncedForRef.current = uid;
-    void syncNow();
+    void syncNow('login_or_open');
   }, [
     isHydrated,
     isAuthenticated,
@@ -183,7 +237,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
       // Fire at most once until it succeeds or connectivity is regained, so a
       // failing sync (e.g. server unreachable) can't loop.
       autoSyncAttemptedRef.current = true;
-      void syncNow();
+      void syncNow('stale_catchup');
     }
   }, [isHydrated, isAuthenticated, isOnline, isStale, status, syncNow]);
 

@@ -15,6 +15,7 @@ import { AppQueryProvider } from '@/providers/QueryProvider';
 import { SyncProvider } from '@/providers/SyncProvider';
 import { OutboxProvider } from '@/providers/OutboxProvider';
 import { SyncGate } from '@/components/ui/SyncGate';
+import { UsageTracker } from '@/components/UsageTracker';
 import { registerBackgroundSync } from '@/lib/offline/backgroundSync';
 import { AppFonts, applyAppFont } from '@/lib/typography';
 import config from '../tamagui.config';
@@ -53,19 +54,25 @@ function AuthGate() {
   }
 
   return (
-    <SyncGate>
-      <Stack>
-        <Stack.Screen name="login" options={{ headerShown: false }} />
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
-        {/* A call in progress is locked — no header back, no swipe-back gesture.
-            The hardware back button is blocked in the screen itself. */}
-        <Stack.Screen
-          name="call/[id]"
-          options={{ headerShown: false, gestureEnabled: false }}
-        />
-      </Stack>
-    </SyncGate>
+    <>
+      {/* Time open / per screen / online-offline, for the usage report. Outside
+          SyncGate, which swaps its children out for its own screens — the
+          tracker must stay mounted for the whole run. */}
+      <UsageTracker />
+      <SyncGate>
+        <Stack>
+          <Stack.Screen name="login" options={{ headerShown: false }} />
+          <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+          <Stack.Screen name="modal" options={{ presentation: 'modal', title: 'Modal' }} />
+          {/* A call in progress is locked — no header back, no swipe-back gesture.
+              The hardware back button is blocked in the screen itself. */}
+          <Stack.Screen
+            name="call/[id]"
+            options={{ headerShown: false, gestureEnabled: false }}
+          />
+        </Stack>
+      </SyncGate>
+    </>
   );
 }
 

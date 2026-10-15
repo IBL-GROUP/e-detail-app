@@ -83,11 +83,24 @@ export const patientsKey = (mieId?: string) =>
 const getPatients = async (mieId: string): Promise<PatientLogRow[]> => {
   // No search term is sent — the whole log is cached and filtered on-device, so
   // the list still works with no signal (the same approach the doctor lists take).
+  const requestedAt = Date.now();
   const response = (await axios.get('/patients', {
     params: { mieId },
   })) as unknown as PatientsResponse;
+  listRequestedAt.set(mieId, requestedAt);
   return response.data ?? [];
 };
+
+/**
+ * When the server list now in the cache was REQUESTED, per rep. A patient
+ * uploaded after that cannot be in it yet; one uploaded before it and still
+ * missing is genuinely gone from the server (removed by an admin), so the
+ * device stops listing it.
+ *
+ * Memory only: after a restart it is unknown (0) until the first refetch, and
+ * until then the device keeps listing what it uploaded — the safe side.
+ */
+const listRequestedAt = new Map<string, number>();
 
 /** This device's recorded patients, kept live as the queue changes. */
 export function useLocalPatients(): LocalPatient[] {
@@ -114,19 +127,22 @@ export function useLocalPatients(): LocalPatient[] {
   return patients;
 }
 
-/** A queued patient, shaped like a stored row so the list can render it. */
+/** A device-only patient, shaped like a stored row so the list can render it. */
 function toListRow(local: LocalPatient, index: number): PatientListRow {
   return {
     ...local.patient,
-    // Nothing on the device has a real s_no yet — the database assigns it on
-    // upload. A negative placeholder keeps list keys unique and can't collide
-    // with a server row.
+    // The device has no real s_no for it — the database assigns that. A
+    // negative placeholder keeps list keys unique and can't collide with a
+    // server row.
     s_no: -(index + 1),
     client_patient_id: local.clientPatientId,
     created_at: local.recordedAt,
-    isPending: true,
+    isPending: local.syncedAt == null,
   };
 }
+
+const newestFirst = (left: PatientListRow, right: PatientListRow) =>
+  String(right.created_at ?? '').localeCompare(String(left.created_at ?? ''));
 
 /**
  * This rep's recorded patients, newest first.
@@ -196,13 +212,44 @@ export const usePatients = (mieId?: string) => {
     });
 
     // Whatever didn't match an existing row is a brand-new patient.
-    const added = unsynced
-      .filter((entry) => !consumed.has(entry))
-      .map(toListRow);
+    const added = unsynced.filter((entry) => !consumed.has(entry));
 
-    // New ones first: a rep who has just recorded a patient expects them on top.
-    return [...added, ...merged];
-  }, [query.data, local]);
+    /**
+     * Uploaded, but not in the server list this device holds yet.
+     *
+     * The list refetch is started the moment a patient is saved, while the
+     * upload is still running, so it can come back WITHOUT that patient. Dropping
+     * the device copy as soon as it synced then made the patient vanish until
+     * the next refetch — and a rep who saw it vanish recorded it again. It is
+     * kept on screen (not pending) until a list requested AFTER the upload
+     * comes back.
+     *
+     * Only rows with a client id: a synced `s_no:` edit already IS a server row.
+     */
+    const serverIds = new Set(
+      serverRows
+        .map((row) => row.client_patient_id)
+        .filter(Boolean)
+        .map(String),
+    );
+    const listedAsOf = mieId ? (listRequestedAt.get(mieId) ?? 0) : 0;
+    const uploadedNotListed = local.filter(
+      (entry) =>
+        entry.syncedAt != null &&
+        Date.parse(entry.syncedAt) > listedAsOf &&
+        entry.patient.client_patient_id &&
+        !serverIds.has(String(entry.patient.client_patient_id)),
+    );
+
+    const deviceOnly = [...added, ...uploadedNotListed].map(toListRow);
+
+    // Unsent ones first: a rep who has just recorded a patient expects them on
+    // top. The rest newest first, as the server orders them.
+    return [
+      ...deviceOnly.filter((row) => row.isPending),
+      ...[...deviceOnly.filter((row) => !row.isPending), ...merged].sort(newestFirst),
+    ];
+  }, [query.data, local, mieId]);
 
   return { ...query, data };
 };

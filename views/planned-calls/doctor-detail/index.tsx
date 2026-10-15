@@ -5,7 +5,7 @@ import { router } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
-import { Alert, ScrollView, StyleSheet, View } from 'react-native';
+import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { CallType, type CallKind } from '../callTypes';
 import { DASH } from '../mapDoctor';
 import { ABANDONED_CANCEL_REASON, recordCancelledCall } from '../recordCancelledCall';
@@ -24,6 +24,7 @@ import { PreviousCallNotesCard } from './PreviousCallNotesCard';
 import { ProfessionalDetailsCard } from './ProfessionalDetailsCard';
 import { HistoryItem } from './RecentHistoryCard';
 import { StartCallButton } from './StartCallButton';
+import { explainNoContent, usePreloadCallDeck } from '@/views/planned-calls/usePreloadCallDeck';
 
 export interface DoctorDetailData {
   id: string;
@@ -83,6 +84,14 @@ export default function DoctorDetail({
 }: DoctorDetailProps) {
   const { user } = useAuth();
   const queryClient = useQueryClient();
+  // The call's slides, loaded and put on the device while the rep is here —
+  // same deck key as the call screen (teamId + doctor + rep), so Start Call
+  // opens on slides that are already in hand. See usePreloadCallDeck.
+  const { status: deckStatus } = usePreloadCallDeck({
+    teamId: Number(doctor.teamId) || undefined,
+    doctorId: viewOnly ? undefined : doctor.id,
+    mieId: user?.mieId ? String(user.mieId) : undefined,
+  });
   const [isCancelVisible, setIsCancelVisible] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
 
@@ -128,7 +137,7 @@ export default function DoctorDetail({
     void recordCancelledCall(ABANDONED_CANCEL_REASON, details);
   };
 
-  const { arrived, arrival, toggleArrived, reset, consume } = useArrival({
+  const { arrived, arrival, locating, ready, toggleArrived, reset, consume } = useArrival({
     onAbandon: handleAbandon,
   });
 
@@ -238,12 +247,18 @@ export default function DoctorDetail({
           <View style={styles.buttonsRow}>
             {/* Add Card (Token) hidden for now */}
             <View style={styles.buttonCellFull}>
-              <ArrivedButton arrived={arrived} onPress={toggleArrived} />
+              <ArrivedButton arrived={arrived} locating={locating} onPress={toggleArrived} />
             </View>
             <View style={styles.buttonCellHalf}>
               <StartCallButton
-                enabled={arrived}
+                // Only with a position in hand — see useArrival.
+                enabled={ready}
                 onPress={() => {
+                  // No content, no call — nothing to detail. Say why, and stay.
+                  if (deckStatus !== 'ready') {
+                    explainNoContent(deckStatus);
+                    return;
+                  }
                   // The arrival is now this call's, so leaving this screen
                   // must NOT report it as a walk-away.
                   consume();
@@ -267,12 +282,19 @@ export default function DoctorDetail({
             </View>
             <View style={styles.buttonCellHalf}>
               <CancelCallButton
-                enabled={arrived}
+                enabled={ready}
                 onPress={() => setIsCancelVisible(true)}
               />
             </View>
           </View>
         )}
+        {!viewOnly && !completed && (deckStatus === 'empty' || deckStatus === 'unavailable') ? (
+          <Text style={styles.noContentNote}>
+            {deckStatus === 'empty'
+              ? 'No content found for this call — it cannot be started.'
+              : 'The content for this call is not on the phone yet — connect and sync to start it.'}
+          </Text>
+        ) : null}
 
         {/* What was noted last time. Renders nothing when there are no notes,
             so a first-time doctor's screen is unchanged. */}
@@ -308,6 +330,13 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 14,
     paddingBottom: 16,
+  },
+  noContentNote: {
+    color: Colors.danger,
+    fontSize: 14,
+    fontWeight: '600',
+    textAlign: 'center',
+    marginTop: 10,
   },
   buttonsRow: {
     flexDirection: 'row',

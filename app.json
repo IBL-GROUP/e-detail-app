@@ -63,7 +63,8 @@
           "cameraPermission": "Allow $(PRODUCT_NAME) to use the camera so you can photograph a prescription for a patient record."
         }
       ],
-      "expo-font"
+      "expo-font",
+      "expo-secure-store"
     ],
     "experiments": {
       "typedRoutes": true,

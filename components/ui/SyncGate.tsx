@@ -86,7 +86,7 @@ export function SyncGate({ children }: { children: ReactNode }) {
         <View style={styles.action}>
           <AppButton
             label={isOnline ? 'Download now' : 'Retry'}
-            onPress={() => void syncNow()}
+            onPress={() => void syncNow('sync_gate_button')}
           />
         </View>
       </View>
@@ -104,7 +104,7 @@ export function SyncGate({ children }: { children: ReactNode }) {
   const bannerSyncing = status === 'syncing' || (bannerSignIn && canResumeOnline);
 
   let bannerText: string;
-  let onBannerPress = () => void syncNow();
+  let onBannerPress = () => void syncNow('status_banner');
   if (bannerSignIn && canResumeOnline) {
     bannerText = 'Signed in offline · connecting to server…';
   } else if (bannerSignIn) {

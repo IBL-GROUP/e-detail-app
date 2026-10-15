@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Modal, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { Image as ExpoImage } from 'expo-image';
+import { OfflineImage } from '@/components/ui/OfflineImage';
 
 import { AppCarousel } from '@/components/ui/AppCarousel';
 import { Colors } from '@/constants/theme';
@@ -76,8 +76,8 @@ export function BrandImageViewer({
           heightRatio={1}
           arrowInset={16}
           renderItem={({ item }) => (
-            <ExpoImage
-              source={{ uri: item }}
+            <OfflineImage
+              url={item}
               style={styles.image}
               contentFit="contain"
               transition={120}
@@ -95,8 +95,8 @@ export function BrandImageViewer({
             >
               {urls.map((url, position) => (
                 <Pressable key={url} onPress={() => setIndex(position)}>
-                  <ExpoImage
-                    source={{ uri: url }}
+                  <OfflineImage
+                    url={url}
                     style={[
                       styles.thumb,
                       position === safeIndex && styles.thumbActive,

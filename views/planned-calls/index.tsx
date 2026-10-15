@@ -9,6 +9,8 @@ import {
   type DoctorFilter,
 } from '@/components/ui/VisitFilter';
 import { ScreenLayout } from '@/components/ui/ScreenLayout';
+import { AppSkeleton } from '@/components/ui/AppSkeleton';
+import { useAfterInteractions } from '@/hooks/use-after-interactions';
 import { Colors } from '@/constants/theme';
 import { savePlannedForMie, seedPlannedFromBulk } from '@/lib/offline/plannedBulk';
 import { useAuth } from '@/providers/AuthProvider';
@@ -28,6 +30,7 @@ import { CALL_KIND_LABELS, type CallKind } from './callTypes';
 import { DoctorCard } from './DoctorCard';
 import { InstitutionCallPanel } from './InstitutionCallPanel';
 import { mapDoctorRows } from './mapDoctor';
+import { startLocationWarmup } from '@/lib/location/captureArrival';
 
 // Doctors revealed per scroll, sliced from the fully-cached list (no network).
 const LIST_PAGE = 30;
@@ -40,6 +43,7 @@ const LIST_PAGE = 30;
 
 export default function PlannedCalls() {
   const { user } = useAuth();
+  const listReady = useAfterInteractions();
   // The call kind is chosen per visit and defaults to the everyday chamber
   // (single-doctor) flow. All three kinds are available regardless of the
   // territory/institution mode, which lives in Settings only.
@@ -110,6 +114,11 @@ export default function PlannedCalls() {
   // synced shows its new visit tally rather than the figures this screen was
   // rendered with before the call. Calls that HAVEN'T synced need no refetch —
   // the call ledger already merges them into these queries.
+  // Start the GPS while the rep is picking a doctor, so that by the time they
+  // tap Arrived there is usually a fix already — offline, an unassisted GPS
+  // can take 10s or more to find one from cold. Stops when the screen does.
+  useFocusEffect(useCallback(() => startLocationWarmup(), []));
+
   useFocusEffect(
     useCallback(() => {
       void queryClient.invalidateQueries({ queryKey: ['planned-doctors'] });
@@ -407,6 +416,15 @@ export default function PlannedCalls() {
         onChange={setCallKind}
         style={styles.callKindSelector}
       />
+      {/* The tab appears the moment it is tapped; the doctor list — the heavy
+          part — draws right after, with placeholders in the meantime. */}
+      {!listReady ? (
+        <View style={styles.content}>
+          {[0, 1, 2, 3, 4].map((row) => (
+            <AppSkeleton key={row} height={92} radius={14} style={styles.skeletonCard} />
+          ))}
+        </View>
+      ) : (
       <FlatList
         data={visibleDoctors}
         keyExtractor={(doctor) => doctor.id}
@@ -484,11 +502,15 @@ export default function PlannedCalls() {
           ) : null
         }
       />
+      )}
     </ScreenLayout>
   );
 }
 
 const styles = StyleSheet.create({
+  skeletonCard: {
+    marginBottom: 12,
+  },
   callKindSelector: {
     marginHorizontal: 16,
     marginTop: 14,

@@ -7,7 +7,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { Platform } from 'react-native';
+import { Alert, Platform } from 'react-native';
 import * as FileSystem from 'expo-file-system/legacy';
 import NetInfo from '@react-native-community/netinfo';
 import axios, { setOfflineSessionHandler, setUnauthorizedHandler } from '@/config/axios';
@@ -23,12 +23,22 @@ import {
   verifyOfflineCredential,
 } from '@/lib/offline/offlineAuth';
 import {
+  getOfflineUsersCount,
+  patchOfflineUserPassword,
   saveOfflineUsers,
   verifyOfflineUser,
+  withPasswordOverride,
   type OfflineUserRecord,
 } from '@/lib/offline/offlineUsers';
+import {
+  clearPendingPasswordChange,
+  pendingChangeFor,
+  readPendingPasswordChange,
+  savePendingPasswordChange,
+} from '@/lib/auth/pendingPasswordChange';
 import { bootstrapPlannedBulk } from '@/lib/offline/plannedBulk';
 import { OFFLINE_SYNC_KEY } from '@/config/app-sync';
+import { recordUsageEvent } from '@/lib/usage/usageLog';
 
 /**
  * The mobile app is used exclusively by TSOs / MIEs (field reps), so the only
@@ -69,7 +79,12 @@ interface AuthContextValue {
   canEdit: boolean;
   login: (username: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
-  changePassword: (currentPassword: string, newPassword: string) => Promise<void>;
+  /**
+   * Changes the password. Online it goes straight to the server; offline it is
+   * applied on this phone at once and queued for the server — `queued` says
+   * which happened.
+   */
+  changePassword: (currentPassword: string, newPassword: string) => Promise<{ queued: boolean }>;
   /** True while the on-open offline login mirror download is in progress. */
   isSyncingOfflineUsers: boolean;
   /**
@@ -87,6 +102,27 @@ interface AuthContextValue {
 
 /** How often an offline session retries the real login while it can. */
 const ONLINE_RETRY_MS = 30_000;
+/**
+ * How long a sign-in waits for the server before falling back to the on-device
+ * check. The API default (30s) is right for data calls but far too long to
+ * leave a rep staring at a spinner on a weak signal.
+ */
+const LOGIN_TIMEOUT_MS = 12_000;
+/** Same idea for the login-list download that runs when the app opens. */
+const OFFLINE_USERS_TIMEOUT_MS = 8_000;
+
+/**
+ * True only when the phone itself says there is no internet. Unknown (null,
+ * e.g. right after start-up) counts as maybe-online, so a real request decides.
+ */
+async function isDefinitelyOffline(): Promise<boolean> {
+  try {
+    const net = await NetInfo.fetch();
+    return net.isConnected === false || net.isInternetReachable === false;
+  } catch {
+    return false;
+  }
+}
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
 
@@ -127,10 +163,11 @@ async function apiLogin(
   let payload: LoginResponse;
   try {
     // The axios response interceptor already unwraps `response.data`.
-    payload = (await axios.post('/auth/login', {
-      username: username.trim(),
-      password,
-    })) as unknown as LoginResponse;
+    payload = (await axios.post(
+      '/auth/login',
+      { username: username.trim(), password },
+      { timeout: LOGIN_TIMEOUT_MS },
+    )) as unknown as LoginResponse;
   } catch (error: any) {
     const message =
       error?.response?.data?.message ||
@@ -187,14 +224,24 @@ interface OfflineUsersResponse {
  */
 export async function bootstrapOfflineUsers(): Promise<void> {
   if (!OFFLINE_SYNC_KEY) return;
+  // Offline, the request could only wait out its timeout — skip it.
+  if (await isDefinitelyOffline()) return;
   try {
     const payload = (await axios.post(
       '/auth/offline-users',
       {},
-      { headers: { 'x-app-key': OFFLINE_SYNC_KEY } },
+      { headers: { 'x-app-key': OFFLINE_SYNC_KEY }, timeout: OFFLINE_USERS_TIMEOUT_MS },
     )) as unknown as OfflineUsersResponse;
     if (payload?.success && Array.isArray(payload.users)) {
-      await saveOfflineUsers(payload.users);
+      // A password changed offline has not reached the server yet, so the
+      // server's list still holds the OLD hash for that rep. Keep the new one on
+      // top until the change lands, or offline sign-in would flip back to the old.
+      const pending = await readPendingPasswordChange();
+      await saveOfflineUsers(
+        pending?.newPasswordHash
+          ? withPasswordOverride(payload.users, pending.identifiers, pending.newPasswordHash)
+          : payload.users,
+      );
     }
   } catch (error) {
     console.warn('[Auth] Failed to sync offline users mirror', error);
@@ -305,6 +352,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
   const [canResumeOnline, setCanResumeOnline] = useState(false);
   const upgradingRef = useRef(false);
+  // The signed-in rep, for the usage log's sign-out event. The 401 and
+  // upgrade handlers are registered once, so they cannot read `user` directly.
+  const userRef = useRef<AuthUser | null>(null);
+  useEffect(() => {
+    userRef.current = user;
+  }, [user]);
 
   useEffect(() => {
     let isMounted = true;
@@ -344,8 +397,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // has never signed in on this device can still log in AND see their planned
     // calls offline. Best-effort: no-ops when offline (keeps last cached copy).
     // The login screen keeps Sign In disabled while the mirror download runs.
+    //
+    // Sign In only WAITS for that download when the phone has no login list at
+    // all (its very first run). A phone that already holds one can sign anyone
+    // in from it straight away, so the refresh carries on in the background —
+    // it used to hold Sign In for up to 30s on every open, offline included.
     void (async () => {
       try {
+        if ((await getOfflineUsersCount()) > 0) {
+          if (isMounted) setIsSyncingOfflineUsers(false);
+          void bootstrapOfflineUsers();
+          return;
+        }
         await bootstrapOfflineUsers();
       } finally {
         if (isMounted) setIsSyncingOfflineUsers(false);
@@ -363,7 +426,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // (matched against user_validation.email_id, online and offline).
     const username = toLoginIdentifier(rawId);
     try {
-      await startOnlineSession(username, password);
+      // Known to be offline: go straight to the on-device check below instead
+      // of waiting for the server request to time out first.
+      if (await isDefinitelyOffline()) {
+        throw Object.assign(new Error('offline'), { isNetworkError: true });
+      }
+      const signedIn = await startOnlineSessionHonouringPending(username, password);
+      void recordUsageEvent('login', signedIn, { mode: 'online' });
     } catch (error: any) {
       // Only fall back to offline login when the server was unreachable — a real
       // 401/403 must still surface as an invalid-credentials error. "Unreachable"
@@ -374,13 +443,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         // 1) Any active user via the on-device login mirror.
         const mirrorRecord = await verifyOfflineUser(username, password);
         if (mirrorRecord) {
-          await startOfflineSession(offlineRecordToSession(mirrorRecord), username, password);
+          const session = offlineRecordToSession(mirrorRecord);
+          await startOfflineSession(session, username, password);
+          void recordUsageEvent('login', session.user, { mode: 'offline' });
           return;
         }
         // 2) Fallback: this device's last online user (salted-hash cache).
         const offlineSession = await verifyOfflineCredential(username, password);
         if (offlineSession) {
           await startOfflineSession(offlineSession, username, password);
+          void recordUsageEvent('login', offlineSession.user, { mode: 'offline' });
           return;
         }
         throw new Error(
@@ -405,6 +477,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // (best-effort; doesn't block the login).
     void bootstrapOfflineUsers();
     void bootstrapPlannedBulk();
+    return nextSession.user;
+  }
+
+  /**
+   * startOnlineSession, aware of a password changed offline that the server has
+   * not got yet: the rep types their NEW password, the server still knows the
+   * OLD one. Sign in with the old one (it is in the queued change) and let the
+   * queue deliver the new one right after.
+   */
+  async function startOnlineSessionHonouringPending(username: string, password: string) {
+    try {
+      return await startOnlineSession(username, password);
+    } catch (error: any) {
+      if (error?.isNetworkError) throw error;
+      const pending = await pendingChangeFor(username);
+      if (!pending || pending.newPassword !== password) throw error;
+      return startOnlineSession(username, pending.currentPassword);
+    }
   }
 
   async function startOfflineSession(
@@ -433,21 +523,24 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     upgradingRef.current = true;
     try {
-      await startOnlineSession(credentials.username, credentials.password);
+      await startOnlineSessionHonouringPending(credentials.username, credentials.password);
       console.log('[Auth] offline session upgraded to an online session');
     } catch (error: any) {
       if (error?.isNetworkError) {
         console.log('[Auth] server still unreachable — staying signed in offline');
       } else {
         console.warn('[Auth] server rejected the offline credentials — signing out', error);
-        await logout();
+        await endSession('credentials_rejected');
       }
     } finally {
       upgradingRef.current = false;
     }
   }
 
-  const logout = async () => {
+  // Why a session ended, for the usage log: the rep tapped Log out, the token
+  // expired (401), or the server no longer accepts the offline credentials.
+  const endSession = async (reason: 'user' | 'session_expired' | 'credentials_rejected') => {
+    void recordUsageEvent('logout', userRef.current, { ended_reason: reason });
     pendingCredentialsRef.current = null;
     setCanResumeOnline(false);
     // Logout only drops the session — it intentionally KEEPS all offline data:
@@ -464,6 +557,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     await writeStoredSession(null);
   };
 
+  /** The rep signing out themselves (the Log out / Sign in again buttons). */
+  const logout = () => endSession('user');
+
   // The backend rejected our token (expired at the weekly Sunday boundary, or
   // invalid). End the session so the rep is taken to the login screen.
   //
@@ -473,7 +569,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // never dropped — so an expired token can't cost a rep their day's calls.
   useEffect(() => {
     setUnauthorizedHandler(() => {
-      void logout();
+      void endSession('session_expired');
     });
     return () => setUnauthorizedHandler(null);
   }, []);
@@ -511,27 +607,137 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [isOfflineSession, canResumeOnline]);
 
-  // Change the signed-in user's password. Updates the server, then refreshes the
-  // on-device offline credential so offline login works with the new password.
+  /** Every name this rep signs in with, lower-cased — user name and email. */
+  const signInNamesOf = (u: AuthUser) => [
+    ...new Set([u.username, u.email].filter(Boolean).map((v) => String(v).trim().toLowerCase())),
+  ];
+
+  // Change the signed-in user's password.
+  //
+  // ONLINE: the server checks the current password and applies the new one;
+  // the on-device sign-in data is then switched to it.
+  //
+  // OFFLINE (or the server cannot be reached): this used to fail with a network
+  // error and change nothing anywhere — the rep believed it was done and had to
+  // do it again online. Now the current password is checked against this
+  // phone's copy, offline sign-in switches to the new password at once, and the
+  // change is queued (encrypted — lib/auth/pendingPasswordChange) for the
+  // server, which gets it as soon as there is a real online session.
   const changePassword = async (currentPassword: string, newPassword: string) => {
     if (!user) throw new Error('You are not signed in.');
-    try {
-      // The backend verifies currentPassword before applying the change.
-      await axios.post('/auth/change-password', {
-        userId: user.userId,
-        username: user.username,
-        currentPassword,
-        newPassword,
-      });
-    } catch (error: any) {
-      const message =
-        error?.response?.data?.message ||
-        error?.message ||
-        'Failed to change password. Please try again.';
-      throw new Error(message);
+    const names = signInNamesOf(user);
+    const credentialName = String(user.email ?? user.username).trim().toLowerCase();
+
+    if (!isOfflineSessionToken(token) && !(await isDefinitelyOffline())) {
+      try {
+        // The backend verifies currentPassword before applying the change.
+        await axios.post('/auth/change-password', {
+          userId: user.userId,
+          username: user.username,
+          currentPassword,
+          newPassword,
+        });
+        await saveOfflineCredential(credentialName, newPassword, user);
+        await patchOfflineUserPassword(names, newPassword);
+        await clearPendingPasswordChange();
+        return { queued: false };
+      } catch (error: any) {
+        // The server answered and said no (wrong current password, too short…):
+        // that IS the answer. Only an unreachable server falls through.
+        if (error?.response) {
+          throw new Error(
+            error.response.data?.message || 'Failed to change password. Please try again.',
+          );
+        }
+      }
     }
-    await saveOfflineCredential(user.username, newPassword, user);
+
+    // Offline: the current password has to match what this phone knows.
+    let currentOk = false;
+    for (const name of names) {
+      if (
+        (await verifyOfflineUser(name, currentPassword)) ||
+        (await verifyOfflineCredential(name, currentPassword))
+      ) {
+        currentOk = true;
+        break;
+      }
+    }
+    if (!currentOk) throw new Error('Current password is incorrect.');
+
+    const newPasswordHash = (await patchOfflineUserPassword(names, newPassword)) ?? '';
+    await saveOfflineCredential(credentialName, newPassword, user);
+
+    // A second offline change keeps the FIRST current password — that is still
+    // the one the server has.
+    const earlier = await readPendingPasswordChange();
+    await savePendingPasswordChange({
+      userId: String(user.userId),
+      username: user.username,
+      identifiers: names,
+      currentPassword:
+        earlier && earlier.userId === String(user.userId) ? earlier.currentPassword : currentPassword,
+      newPassword,
+      newPasswordHash,
+      queuedAt: new Date().toISOString(),
+    });
+    return { queued: true };
   };
+
+  /**
+   * Sends a queued offline password change once there is a real online session.
+   * Accepted: done, and the rep is told. Refused (changed or reset elsewhere in
+   * the meantime): the phone goes back to the password the server has, and the
+   * rep is told why. Unreachable: kept for next time.
+   */
+  const flushingPasswordRef = useRef(false);
+  const flushPendingPasswordChange = async () => {
+    const current = userRef.current;
+    const liveToken = getAccessToken();
+    if (!current || flushingPasswordRef.current) return;
+    if (!liveToken || isOfflineSessionToken(liveToken)) return;
+    const pending = await readPendingPasswordChange();
+    if (!pending || pending.userId !== String(current.userId)) return;
+
+    flushingPasswordRef.current = true;
+    const credentialName = String(current.email ?? current.username).trim().toLowerCase();
+    try {
+      await axios.post('/auth/change-password', {
+        userId: pending.userId,
+        username: pending.username,
+        currentPassword: pending.currentPassword,
+        newPassword: pending.newPassword,
+      });
+      await clearPendingPasswordChange();
+      await saveOfflineCredential(credentialName, pending.newPassword, current);
+      void bootstrapOfflineUsers();
+      Alert.alert('Password updated', 'The password you changed offline is now active everywhere.');
+    } catch (error: any) {
+      if (!error?.response) return; // still unreachable — try again later
+      await clearPendingPasswordChange();
+      await saveOfflineCredential(credentialName, pending.currentPassword, current);
+      await patchOfflineUserPassword(pending.identifiers, pending.currentPassword);
+      const reason = error.response.data?.message ? `${error.response.data.message}. ` : '';
+      Alert.alert(
+        'Password change not applied',
+        reason +
+          'The password you changed offline could not be saved, so your previous password is still the one to use.',
+      );
+    } finally {
+      flushingPasswordRef.current = false;
+    }
+  };
+  const flushPasswordRef = useRef(flushPendingPasswordChange);
+  flushPasswordRef.current = flushPendingPasswordChange;
+
+  // Deliver a queued change as soon as a real session exists, and on reconnect.
+  useEffect(() => {
+    if (!token || isOfflineSessionToken(token)) return;
+    void flushPasswordRef.current();
+    return NetInfo.addEventListener((state) => {
+      if (state.isConnected) void flushPasswordRef.current();
+    });
+  }, [token]);
 
   const value = useMemo<AuthContextValue>(
     () => ({

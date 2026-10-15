@@ -26,7 +26,7 @@ export interface ForcingContentResponse {
   data: ForcingContentRow[];
 }
 
-interface ForcingContentParams {
+export interface ForcingContentParams {
   teamId?: number;
   doctorId?: string;
   // Institution calls resolve forcing by a chosen specialty instead of a doctor.
@@ -100,17 +100,33 @@ export const getTeamBrands = async (teamId: number): Promise<TeamBrand[]> => {
     params: { teamId },
   })) as unknown as { success: boolean; data: TeamBrand[] };
 
-  // Point the previews at whatever host this build talks to, the same way slide
-  // images are resolved — a stored URL may carry a different origin.
-  return (res.data ?? []).map((brand) => ({
+  return normalizeTeamBrands(res.data ?? []);
+};
+
+/**
+ * Points the previews at whatever host this build talks to, the same way slide
+ * images are resolved — a stored URL may carry a different origin. Used by the
+ * live query and by the daily sync's seed alike, so both file the images under
+ * the same address the device cache is keyed on.
+ */
+export function normalizeTeamBrands(brands: TeamBrand[]): TeamBrand[] {
+  return brands.map((brand) => ({
     ...brand,
     slideUrls: (brand.slideUrls ?? []).map(normalizeAssetUrl),
-    skus: brand.skus.map((sku) => ({
+    skus: (brand.skus ?? []).map((sku) => ({
       ...sku,
       slideUrls: (sku.slideUrls ?? []).map(normalizeAssetUrl),
     })),
   }));
-};
+}
+
+/** Every image the Content screen can show for these brands. */
+export function teamBrandImageUrls(brands: TeamBrand[]): string[] {
+  return brands.flatMap((brand) => [
+    ...(brand.slideUrls ?? []),
+    ...(brand.skus ?? []).flatMap((sku) => sku.slideUrls ?? []),
+  ]);
+}
 
 /**
  * The brands + SKUs assigned to the rep's team — what they detail on. Cached (and
@@ -265,6 +281,12 @@ export interface DoctorCallSlide {
   durationSeconds: number;
   image?: { uri: string };
   /**
+   * The image's address on the server. `image` is the on-device copy when
+   * there is one; this is what the slide falls back to if that copy cannot be
+   * read, and what it swaps back from once a download lands.
+   */
+  remoteUri?: string;
+  /**
    * What identifies this slide when its time is reported — see `slideIdentity`.
    * NOT `image.uri`, which is the on-device copy and differs per device.
    */
@@ -337,6 +359,7 @@ export const useForcingSlides = ({
         durationSeconds: parseDurationSeconds(row.duration),
         // Use the on-device copy when available so slides play offline.
         image: { uri: resolveCachedImage(normalizeAssetUrl(row.url)) ?? '' },
+        remoteUri: normalizeAssetUrl(row.url) || undefined,
         slideId: slideIdentity(row.url),
         forcing: row.forcing ?? null,
       })),

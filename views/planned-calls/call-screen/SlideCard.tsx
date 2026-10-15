@@ -2,7 +2,8 @@ import { Colors } from '@/constants/theme';
 import { ZoomableImage } from '@/components/ui/ZoomableImage';
 import { Image as ExpoImage } from 'expo-image';
 import { useVideoPlayer, VideoView, type VideoContentFit } from 'expo-video';
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { resolveCachedImage } from '@/lib/offline/imageCache';
 import {
   ImageSourcePropType,
   Platform,
@@ -27,6 +28,8 @@ export interface Slide {
   bullets: string[];
   durationSeconds: number;
   image?: ImageSourcePropType;
+  /** The image on the server — the fallback when `image` (the device copy) fails. */
+  remoteUri?: string;
   /**
    * What identifies this slide when its time is reported to analytics — the
    * image's path, not the on-device copy behind `image`. Absent on the demo
@@ -179,12 +182,39 @@ function getImageUri(source: ImageSourcePropType | undefined) {
   return null;
 }
 
+/**
+ * The slide's image, with a fallback between its two copies.
+ *
+ * A slide normally shows its on-device copy (downloaded by sync, or preloaded
+ * on the doctor screen). If that copy cannot be read — deleted, half-written —
+ * it falls back to the server. If it was showing the server copy because the
+ * download had not landed yet, and that load fails on a weak connection, it
+ * switches to the device copy as soon as one exists. Each copy is tried once.
+ */
+function useSlideImage(slide: Slide) {
+  const primary = getImageUri(slide.image);
+  const [uri, setUri] = useState(primary);
+  useEffect(() => setUri(primary), [primary]);
+
+  const onError = useCallback(() => {
+    setUri((current) => {
+      const local = resolveCachedImage(slide.remoteUri);
+      if (local && local !== slide.remoteUri && local !== current) return local;
+      if (slide.remoteUri && current !== slide.remoteUri) return slide.remoteUri;
+      return current;
+    });
+  }, [slide.remoteUri]);
+
+  const source: ImageSourcePropType | undefined = uri ? { uri } : slide.image;
+  return { uri, source, onError };
+}
+
 export function SlideCard({ slide, isActive = true, onZoomChange }: SlideCardProps) {
   const { width, height } = useWindowDimensions();
   const shouldShowHeroImage = Boolean(slide.image) && slide.bullets.length === 0;
   const isWeb = Platform.OS === 'web';
   const isLandscape = width > height;
-  const imageUri = getImageUri(slide.image);
+  const { uri: imageUri, source: imageSource, onError: onImageError } = useSlideImage(slide);
   const isVideo = isVideoUri(imageUri);
   const heroGradientHeight = isWeb ? 260 : 180;
   const showMobileEdgeShadow = !isWeb;
@@ -203,7 +233,7 @@ export function SlideCard({ slide, isActive = true, onZoomChange }: SlideCardPro
                 style={webHeroImageStyle}
               />
             ) : (
-              <img src={imageUri} alt={slide.title} style={webHeroImageStyle} />
+              <img src={imageUri} alt={slide.title} style={webHeroImageStyle} onError={onImageError} />
             )
           ) : isVideo && imageUri ? (
             // No ZoomableImage around it: a video has its own controls and its
@@ -217,7 +247,8 @@ export function SlideCard({ slide, isActive = true, onZoomChange }: SlideCardPro
           ) : (
             // Tablet: pinch / double-tap into the slide's small print.
             <ZoomableImage
-              source={slide.image as ImageSourcePropType}
+              source={imageSource as ImageSourcePropType}
+              onError={onImageError}
               style={styles.heroImage}
               contentFit="contain"
               isActive={isActive}
@@ -305,7 +336,7 @@ export function SlideCard({ slide, isActive = true, onZoomChange }: SlideCardPro
                 style={webSideImageStyle}
               />
             ) : (
-              <img src={imageUri} alt={slide.title} style={webSideImageStyle} />
+              <img src={imageUri} alt={slide.title} style={webSideImageStyle} onError={onImageError} />
             )
           ) : isVideo && imageUri ? (
             <SlideVideo
@@ -315,7 +346,12 @@ export function SlideCard({ slide, isActive = true, onZoomChange }: SlideCardPro
               contentFit="cover"
             />
           ) : (
-            <ExpoImage source={slide.image} style={styles.image} contentFit="cover" />
+            <ExpoImage
+              source={imageSource}
+              style={styles.image}
+              contentFit="cover"
+              onError={onImageError}
+            />
           )
         ) : null}
       </View>

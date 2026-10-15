@@ -91,3 +91,44 @@ export async function verifyOfflineUser(
     return null;
   }
 }
+
+const matchesAny = (u: OfflineUserRecord, identifiers: string[]) =>
+  identifiers.includes(u.username?.trim().toLowerCase() ?? '') ||
+  identifiers.includes((u.email ?? '').trim().toLowerCase());
+
+/**
+ * A copy of `users` with this rep's hash replaced — used when a fresh list
+ * arrives from the server while an offline password change has not reached it
+ * yet: the server's copy still has the OLD hash, and offline sign-in must keep
+ * accepting the NEW password until the change lands.
+ */
+export function withPasswordOverride(
+  users: OfflineUserRecord[],
+  identifiers: string[],
+  passwordHash: string,
+): OfflineUserRecord[] {
+  return users.map((u) => (matchesAny(u, identifiers) ? { ...u, passwordHash } : u));
+}
+
+/**
+ * Switches this rep's offline sign-in to `newPassword` on the device: the old
+ * password stops working offline, the new one starts. Returns the new bcrypt
+ * hash, or null when the rep is not in the list (nothing to patch).
+ *
+ * The salt is taken from the existing hash rather than generated: bcryptjs has
+ * no secure random source in React Native, and a bcrypt salt does not need to
+ * change with the password for the hash to be sound.
+ */
+export async function patchOfflineUserPassword(
+  identifiers: string[],
+  newPassword: string,
+): Promise<string | null> {
+  const users = await readOfflineUsers();
+  const match = users.find((u) => matchesAny(u, identifiers));
+  if (!match?.passwordHash) return null;
+
+  const salt = match.passwordHash.slice(0, 29);
+  const passwordHash = await bcrypt.hash(String(newPassword), salt);
+  await saveOfflineUsers(withPasswordOverride(users, identifiers, passwordHash));
+  return passwordHash;
+}
