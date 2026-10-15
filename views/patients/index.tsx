@@ -1,4 +1,4 @@
-import { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -42,6 +42,19 @@ export default function Patients() {
   const [isFormOpen, setIsFormOpen] = useState(false);
   // The row being edited, or null when the form is adding a new patient.
   const [editing, setEditing] = useState<PatientListRow | null>(null);
+  /**
+   * Bumped every time the form opens, and used as its `key`, so each open gets
+   * a brand-new form with empty fields (or the row being edited) — never the
+   * last patient saved. The form also reloads itself on open; this makes it
+   * impossible for a saved patient to linger whatever happens there.
+   */
+  const [formSession, setFormSession] = useState(0);
+  const openForm = (row: PatientListRow | null) => {
+    setSubmitError(null);
+    setEditing(row);
+    setFormSession((session) => session + 1);
+    setIsFormOpen(true);
+  };
   const [submitError, setSubmitError] = useState<string | null>(null);
 
   const patientsQuery = usePatients(mieId);
@@ -134,9 +147,22 @@ export default function Patients() {
     setVisibleCount((count) => (count < patients.length ? count + LIST_PAGE : count));
   };
 
+  /**
+   * Set synchronously on the first tap of Save. `createPatient.isPending` only
+   * reaches the button on the next render, so two taps landing before it (a
+   * busy JS thread queues them) would each queue the patient under its own new
+   * id — a duplicate the server's upsert cannot catch.
+   */
+  const submittingRef = useRef(false);
+
   const handleSubmit = (patient: PatientLogInput) => {
+    if (submittingRef.current) return;
+    submittingRef.current = true;
     setSubmitError(null);
     createPatient.mutate(patient, {
+      onSettled: () => {
+        submittingRef.current = false;
+      },
       onSuccess: () => {
         setIsFormOpen(false);
         setEditing(null);
@@ -173,11 +199,7 @@ export default function Patients() {
 
           <AppButton
             label="Add Patient"
-            onPress={() => {
-              setSubmitError(null);
-              setEditing(null);
-              setIsFormOpen(true);
-            }}
+            onPress={() => openForm(null)}
             icon={<Ionicons name="add" size={18} color={Colors.textOnDark} />}
           />
         </View>
@@ -195,11 +217,7 @@ export default function Patients() {
         renderItem={({ item }) => (
           <PatientCard
             patient={item}
-            onEdit={(row) => {
-              setSubmitError(null);
-              setEditing(row);
-              setIsFormOpen(true);
-            }}
+            onEdit={openForm}
           />
         )}
         contentContainerStyle={styles.content}
@@ -230,6 +248,7 @@ export default function Patients() {
       />
 
       <AddPatientModal
+        key={formSession}
         visible={isFormOpen}
         doctors={doctors}
         specialties={specialties}

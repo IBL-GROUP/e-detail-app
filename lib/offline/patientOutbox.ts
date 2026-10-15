@@ -40,9 +40,10 @@ import {
 
 // Flush at most this many rows per batch request.
 const FLUSH_BATCH_SIZE = 50;
-// A patient the server keeps REJECTING is dropped after this many attempts so
-// it can't block the queue forever. Transient network failures do NOT count —
-// data is only given up when the server explicitly rejected the content.
+// A patient the server keeps REJECTING (4xx) is dropped after this many
+// attempts so it can't block the queue forever. Network failures and server
+// errors (5xx) do NOT count — data is only given up when the server explicitly
+// refused the content.
 const MAX_REJECT_ATTEMPTS = 5;
 // Synced patients older than this are dropped from the device. The list reads
 // from the server beyond that horizon.
@@ -52,7 +53,19 @@ export interface BatchPatientResult {
   clientId: string | null;
   success: boolean;
   sNo?: number | null;
+  /** HTTP-style status of a failed item: 4xx refused, 5xx server failure. */
+  status?: number;
   message?: string;
+}
+
+/**
+ * Only a 4xx is the server REFUSING the patient (a field too long, a missing
+ * name) — retrying the same payload can never succeed. A 5xx, or no status at
+ * all (an older backend), is the server failing, and the patient is kept and
+ * retried indefinitely, exactly as a call is. Same rule as outbox.ts.
+ */
+function isContentRejection(status?: number) {
+  return typeof status === 'number' && status >= 400 && status < 500;
 }
 
 export interface BatchPatientResponse {
@@ -98,6 +111,18 @@ function notify() {
 export function subscribePatientOutbox(listener: () => void): () => void {
   listeners.add(listener);
   return () => listeners.delete(listener);
+}
+
+const syncedListeners = new Set<() => void>();
+
+/**
+ * Subscribe to "the server accepted patients", whoever ran the flush — a save
+ * flushes on its own, not only the provider — so the cached list can refetch
+ * and pick up the server's copy.
+ */
+export function subscribePatientsSynced(listener: () => void): () => void {
+  syncedListeners.add(listener);
+  return () => syncedListeners.delete(listener);
 }
 
 /** Initialize the store early (called at app start). */
@@ -233,14 +258,16 @@ export async function flushPatientOutbox(): Promise<number> {
     isFlushPending = true;
     return 0;
   }
-
-  const net = await NetInfo.fetch();
-  if (!net.isConnected) return 0;
-
-  let syncedCount = 0;
+  // Claimed BEFORE the first await: set after it, two callers (a save and a
+  // reconnect) could both get past the check above and send the same rows.
   isFlushing = true;
 
+  let syncedCount = 0;
+
   try {
+    const net = await NetInfo.fetch();
+    if (!net.isConnected) return 0;
+
     const rows = await patientPending(FLUSH_BATCH_SIZE);
     if (rows.length === 0) return 0;
 
@@ -304,6 +331,11 @@ export async function flushPatientOutbox(): Promise<number> {
     const attemptsById = new Map(
       rows.map((row) => [row.client_patient_id, row.attempts]),
     );
+    // The version each row was read at. An edit saved while this request is in
+    // flight rewrites the row; it must stay unsynced so the edit goes up too.
+    const payloadById = new Map(
+      rows.map((row) => [row.client_patient_id, row.payload]),
+    );
 
     let response;
     try {
@@ -331,11 +363,27 @@ export async function flushPatientOutbox(): Promise<number> {
 
       if (result.success) {
         syncedCount += 1;
-        await patientMarkSynced(result.clientId, now);
+        await patientMarkSynced(
+          result.clientId,
+          now,
+          payloadById.get(result.clientId) ?? '',
+        );
         // The server holds the images now, so the device's copies are dead
         // weight. Best-effort: a leftover file costs space, never data.
         void cleanUpLocalAttachments(localFilesById.get(result.clientId)).catch(
           () => {},
+        );
+        continue;
+      }
+
+      if (!isContentRejection(result.status)) {
+        // The server failed on this patient rather than refusing it. Keep it
+        // queued indefinitely — dropping it after five 500s (a database
+        // hiccup) would delete a patient the server never stored.
+        await patientMarkFailed(
+          result.clientId,
+          attemptsById.get(result.clientId) ?? 0,
+          String(result.message ?? 'server error').slice(0, 500),
         );
         continue;
       }
@@ -357,6 +405,15 @@ export async function flushPatientOutbox(): Promise<number> {
     }
 
     notify();
+    if (syncedCount > 0) {
+      syncedListeners.forEach((listener) => {
+        try {
+          listener();
+        } catch {
+          // ignore listener errors
+        }
+      });
+    }
 
     // A full batch means there may be more queued — keep draining.
     if (rows.length === FLUSH_BATCH_SIZE) {

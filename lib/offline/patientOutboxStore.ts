@@ -83,16 +83,23 @@ export async function patientPendingCount(): Promise<number> {
   return row?.n ?? 0;
 }
 
+/**
+ * Marks a row synced — only if it still holds `sentPayload`, the version that
+ * was uploaded. A row edited while its upload was in flight is left unsynced,
+ * so the edit is sent on the next flush instead of being skipped.
+ */
 export async function patientMarkSynced(
   clientPatientId: string,
   syncedAt: string,
+  sentPayload: string,
 ): Promise<void> {
   const db = await getDb();
   await db.runAsync(
     `UPDATE patient_outbox SET synced_at = ?, last_error = NULL
-     WHERE client_patient_id = ?`,
+     WHERE client_patient_id = ? AND payload = ?`,
     syncedAt,
     clientPatientId,
+    sentPayload,
   );
 }
 

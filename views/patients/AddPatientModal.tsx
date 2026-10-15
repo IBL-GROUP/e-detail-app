@@ -226,20 +226,32 @@ export function AddPatientModal({
   };
 
   /**
-   * Load the row being edited into the fields, and clear them again for a new
-   * patient.
+   * Load the row being edited into the fields, and clear them for a new patient
+   * — EVERY time the sheet opens.
    *
-   * Keyed on the row identity rather than on `visible`, so re-rendering while
-   * the sheet is open never overwrites what the rep is part-way through typing.
+   * The key is "which sheet is open": null while closed, 'new' for Add Patient,
+   * the row's identity for Edit. Closing drops it back to null, so the next open
+   * always reloads, even Add Patient after Add Patient.
+   *
+   * This used to lean on the Modal's onDismiss to empty the form after a save,
+   * but React Native only fires onDismiss on iOS. On Android the saved patient
+   * stayed in the fields, Add Patient reopened on it, and one more tap of Save
+   * filed the same patient a second time under a fresh id.
+   *
+   * Re-renders while the sheet is open keep the same key, so they never
+   * overwrite what the rep is part-way through typing.
    */
   const editingKey = editing
     ? String(editing.client_patient_id ?? editing.s_no)
     : null;
+  const openKey = visible ? (editingKey ?? 'new') : null;
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
 
-  if (visible && editingKey !== loadedKey) {
-    setLoadedKey(editingKey);
-    if (editing) {
+  if (openKey !== loadedKey) {
+    setLoadedKey(openKey);
+    // On close (openKey null) the fields are left alone, so the closing fade
+    // still shows what was saved; they are reloaded the moment it opens again.
+    if (openKey && editing) {
       setPatientName(editing.patient_name ?? '');
       setContactNumber(formatPakistaniMobile(editing.contact_number ?? ''));
       setCity(editing.city ?? '');
@@ -254,7 +266,7 @@ export function AddPatientModal({
       setStrength3(editing.strength_month_3 ?? '');
       setAttachments((editing.attachments ?? []).filter(Boolean));
       setShowErrors(false);
-    } else {
+    } else if (openKey) {
       resetForm();
     }
   }
@@ -348,9 +360,8 @@ export function AddPatientModal({
       animationType="fade"
       onRequestClose={handleCancel}
       statusBarTranslucent
-      // The form is emptied once the sheet is fully gone, so a saved patient
-      // doesn't flash back into the fields on the way out — and so reopening
-      // always starts blank rather than on the previous patient.
+      // iOS only (React Native does not fire it on Android). Not relied on: the
+      // form is reloaded whenever the sheet opens — see openKey above.
       onDismiss={resetForm}
     >
       <View style={styles.fill}>

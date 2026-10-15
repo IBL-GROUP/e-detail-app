@@ -75,13 +75,15 @@ export async function patientPendingCount(): Promise<number> {
   return readAll().filter((row) => row.synced_at === null).length;
 }
 
+/** Only if the row still holds the uploaded version — see the native store. */
 export async function patientMarkSynced(
   clientPatientId: string,
   syncedAt: string,
+  sentPayload: string,
 ): Promise<void> {
   writeAll(
     readAll().map((row) =>
-      row.client_patient_id === clientPatientId
+      row.client_patient_id === clientPatientId && row.payload === sentPayload
         ? { ...row, synced_at: syncedAt, last_error: null }
         : row,
     ),

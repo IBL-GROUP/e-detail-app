@@ -23,6 +23,7 @@ import {
   getPendingPatientCount,
   initPatientOutbox,
   subscribePatientOutbox,
+  subscribePatientsSynced,
 } from '@/lib/offline/patientOutbox';
 /** Prefix of every patient-list query key (one per rep). */
 const PATIENTS_QUERY_KEY = ['patients'] as const;
@@ -79,20 +80,9 @@ export function OutboxProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  /**
-   * Flush the patient queue and, if anything landed, drop the cached list so it
-   * refetches — the server's copy carries the real s_no and created_at, and
-   * until it arrives the list is still rendering this device's placeholder row.
-   */
-  const flushPatients = useCallback(async () => {
-    const synced = await flushPatientOutbox();
-    if (synced > 0) {
-      // The whole family, not one rep's key: this runs outside any screen, so
-      // the mieId the list is keyed by isn't in hand here.
-      void queryClient.invalidateQueries({ queryKey: PATIENTS_QUERY_KEY });
-    }
-    return synced;
-  }, [queryClient]);
+  // The list refetch on success is the subscribePatientsSynced effect below —
+  // it also covers the flush a save starts on its own.
+  const flushPatients = useCallback(() => flushPatientOutbox(), []);
 
   // Initialize the DBs, do a first flush of both queues, and keep the pending
   // counts live.
@@ -126,6 +116,18 @@ export function OutboxProvider({ children }: { children: ReactNode }) {
       for (const queryKey of CALL_DERIVED_QUERY_KEYS) {
         void queryClient.invalidateQueries({ queryKey });
       }
+    });
+  }, [queryClient]);
+
+  /**
+   * Patients reached the server — refetch the list so the server's copy (real
+   * s_no and created_at) replaces the device's placeholder row. The whole
+   * family, not one rep's key: this runs outside any screen, so the mieId the
+   * list is keyed by isn't in hand here.
+   */
+  useEffect(() => {
+    return subscribePatientsSynced(() => {
+      void queryClient.invalidateQueries({ queryKey: PATIENTS_QUERY_KEY });
     });
   }, [queryClient]);
 
