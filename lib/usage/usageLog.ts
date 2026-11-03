@@ -28,7 +28,14 @@ import { APP_VERSION_WITH_BUILD } from '@/lib/appVersion';
  */
 
 export type SpanKind = 'app' | 'screen' | 'network';
-export type UsageEventType = 'app_session' | 'screen' | 'network' | 'sync' | 'login' | 'logout';
+export type UsageEventType =
+  | 'app_session'
+  | 'screen'
+  | 'network'
+  | 'sync'
+  | 'login'
+  | 'logout'
+  | 'crash';
 
 /** The rep an event belongs to — a snapshot, since the queue can outlive a session. */
 export interface UsageUser {
@@ -353,6 +360,27 @@ export function recoverOpenSpans(): Promise<void> {
 }
 
 /**
+ * "samsung SM-A045F" on Android — which phone a crash report came from. Null
+ * where the platform does not say (web has no Platform.constants at all), so
+ * this can never be what stops an upload.
+ */
+function deviceModel(): string | null {
+  try {
+    const constants = (Platform.constants ?? {}) as {
+      Manufacturer?: string;
+      Brand?: string;
+      Model?: string;
+    };
+    const name = [constants.Manufacturer ?? constants.Brand, constants.Model]
+      .filter(Boolean)
+      .join(' ');
+    return name || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Uploads the queue in batches. Needs a real server token — an offline
  * session's placeholder is refused by the API — so it quietly waits for one.
  * An upload whose answer never arrives is simply sent again next time; the
@@ -376,6 +404,7 @@ export async function flushUsage(): Promise<void> {
           platform: Platform.OS,
           os_version: String(Platform.Version ?? ''),
           app_version: APP_VERSION_WITH_BUILD,
+          device_model: deviceModel(),
         },
         events: batch,
       });

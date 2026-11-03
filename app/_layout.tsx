@@ -17,8 +17,13 @@ import { OutboxProvider } from '@/providers/OutboxProvider';
 import { SyncGate } from '@/components/ui/SyncGate';
 import { UsageTracker } from '@/components/UsageTracker';
 import { registerBackgroundSync } from '@/lib/offline/backgroundSync';
+import { installCrashReporting } from '@/lib/crash/crashReporter';
 import { AppFonts, applyAppFont } from '@/lib/typography';
 import config from '../tamagui.config';
+
+// Before anything else can fail: catch JavaScript crashes, and find out whether
+// the last run ended while on screen (lib/crash/crashReporter.ts).
+installCrashReporting();
 
 // Patch Text/TextInput once, before any screen renders.
 applyAppFont();

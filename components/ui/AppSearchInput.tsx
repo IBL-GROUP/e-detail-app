@@ -56,7 +56,6 @@ const styles = StyleSheet.create({
     backgroundColor: 'transparent',
     outlineWidth: 0,
     outlineColor: 'transparent',
-    outlineStyle: 'none',
   },
   clearButton: {
     width: 24,
