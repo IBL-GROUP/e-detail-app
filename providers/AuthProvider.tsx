@@ -39,6 +39,7 @@ import {
 import { bootstrapPlannedBulk } from '@/lib/offline/plannedBulk';
 import { OFFLINE_SYNC_KEY } from '@/config/app-sync';
 import { recordUsageEvent } from '@/lib/usage/usageLog';
+import { loadPermissions, resetPermissions } from '@/lib/auth/permissions';
 
 /**
  * The mobile app is used exclusively by TSOs / MIEs (field reps), so the only
@@ -729,6 +730,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
   const flushPasswordRef = useRef(flushPendingPasswordChange);
   flushPasswordRef.current = flushPendingPasswordChange;
+
+  // The rep's dashboard permissions (lib/auth/permissions): from the device
+  // cache at once, then from the server whenever there is a real session — on
+  // sign-in, app open, an offline session upgrading, and on reconnect.
+  const permissionsUserId = user ? String(user.userId) : null;
+  useEffect(() => {
+    if (!permissionsUserId) {
+      resetPermissions();
+      return;
+    }
+    const online = Boolean(token) && !isOfflineSessionToken(token);
+    void loadPermissions(permissionsUserId, online);
+    if (!online) return;
+    return NetInfo.addEventListener((state) => {
+      if (state.isConnected) void loadPermissions(permissionsUserId, true);
+    });
+  }, [permissionsUserId, token]);
 
   // Deliver a queued change as soon as a real session exists, and on reconnect.
   useEffect(() => {

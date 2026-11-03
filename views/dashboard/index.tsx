@@ -1,26 +1,36 @@
 import { AppButton } from '@/components/ui/AppButton';
 import { ScreenLayout } from '@/components/ui/ScreenLayout';
 import { Colors } from '@/constants/theme';
+import { usePermissions } from '@/lib/auth/permissions';
 import { useAuth } from '@/providers/AuthProvider';
 import { Ionicons } from '@expo/vector-icons';
 import { router, type Href } from 'expo-router';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
 import { DashboardNavCard } from './DashboardNavCard';
 
 // The tutorial video (TutorialVideoCard) and the performance chart
 // (MonthlyPerformanceCard) are TEMPORARILY hidden — the dashboard is now the
 // four entry points below. Both components are kept for when they come back.
-const NAV_CARDS: {
+//
+// Each card carries the permission section_code that governs it: it shows only
+// when the rep holds ONE_FOR.MOBILE.E_DETAILING_APP.<section>.VIEW, granted in
+// the roles-permission console (see lib/auth/permissions). A new card needs its
+// permission created there under the same project / module / resource.
+type NavCard = {
   label: string;
   description: string;
   iconName: keyof typeof Ionicons.glyphMap;
   href: Href;
-}[] = [
+  section: string;
+};
+
+const NAV_CARDS: NavCard[] = [
   {
     label: 'Doctors',
     description: 'Assigned doctors',
     iconName: 'people-outline',
     href: '/doctor-list',
+    section: 'DOCTORS',
   },
   {
     // The rep's whole product book from products/brands — every brand and SKU
@@ -29,6 +39,7 @@ const NAV_CARDS: {
     description: 'Assigned brand and SKU ',
     iconName: 'pricetags-outline',
     href: '/my-brands',
+    section: 'PORTFOLIO',
   },
   {
     // The slide decks themselves — read-only previews of the visuals a rep
@@ -38,18 +49,21 @@ const NAV_CARDS: {
     description: 'Product Content for e-Detailing',
     iconName: 'albums-outline',
     href: '/content-library',
+    section: 'CONTENT',
   },
   {
     label: 'e-Detailing',
     description: "Report today's calls",
     iconName: 'calendar-outline',
     href: '/planned-calls',
+    section: 'E_DETAILING',
   },
   {
     label: 'Analytics',
     description: 'View Sales & Call Performance',
     iconName: 'bar-chart-outline',
     href: '/analytics',
+    section: 'ANALYTICS',
   },
   {
     // The rep's own patient log (patient_log) — recorded by them, listed here.
@@ -57,6 +71,7 @@ const NAV_CARDS: {
     description: 'Patients you have recorded',
     iconName: 'person-add-outline',
     href: '/patients',
+    section: 'PATIENTS',
   },
 ];
 
@@ -65,19 +80,22 @@ const NAV_CARDS: {
  *
  * Derived from NAV_CARDS rather than sliced by hand: the grid used to render a
  * fixed slice(0,2) + slice(2,4), so adding a fifth card silently dropped the
- * last one off the dashboard.
+ * last one off the dashboard. Built per render from the cards the rep may see.
  */
-const NAV_ROWS: ((typeof NAV_CARDS)[number] | null)[][] = Array.from(
-  { length: Math.ceil(NAV_CARDS.length / 2) },
-  (_, row) => {
-    const pair = NAV_CARDS.slice(row * 2, row * 2 + 2);
+function toRows(cards: NavCard[]): (NavCard | null)[][] {
+  return Array.from({ length: Math.ceil(cards.length / 2) }, (_, row) => {
+    const pair = cards.slice(row * 2, row * 2 + 2);
     return pair.length === 2 ? pair : [...pair, null];
-  }
-);
+  });
+}
 
 export default function Dashboard() {
   const { user } = useAuth();
   const profileName = user?.name ?? 'Medical Rep';
+  const { isReady, canView } = usePermissions();
+  // Nothing until the codes are known — showing every card first would flash
+  // ones the rep is not granted before removing them.
+  const navRows = isReady ? toRows(NAV_CARDS.filter((card) => canView(card.section))) : [];
 
   return (
     <ScreenLayout
@@ -92,8 +110,16 @@ export default function Dashboard() {
         />
       }
     >
+      {!isReady ? (
+        <Text style={styles.accessMessage}>Checking your access…</Text>
+      ) : navRows.length === 0 ? (
+        <Text style={styles.accessMessage}>
+          You don&apos;t have access to any e-Detailing features yet. Please contact your
+          administrator.
+        </Text>
+      ) : null}
       <View style={styles.grid}>
-        {NAV_ROWS.map((row, rowIndex) => (
+        {navRows.map((row, rowIndex) => (
           <View key={`row-${rowIndex}`} style={styles.row}>
             {row.map((card, position) => (
               // Every slot is the SAME cell view, filled or empty, so each
@@ -124,6 +150,12 @@ export default function Dashboard() {
 const styles = StyleSheet.create({
   hiddenHeaderButton: {
     display: 'none' as const,
+  },
+  accessMessage: {
+    color: Colors.textMuted,
+    fontSize: 15,
+    textAlign: 'center',
+    paddingVertical: 24,
   },
   grid: {
     gap: 12,
