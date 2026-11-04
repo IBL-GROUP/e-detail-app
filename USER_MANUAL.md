@@ -113,7 +113,7 @@ Four buttons are always at the bottom of the screen:
 
 At the top you see **Hello, [your name]** and today's date.
 
-Below are six cards. Tap any card to open it:
+Below are the cards. Tap any card to open it:
 
 | Card | What you will find |
 |---|---|
@@ -123,6 +123,21 @@ Below are six cards. Tap any card to open it:
 | **e-Detailing** | Report today's calls |
 | **Analytics** | Your sales and call performance |
 | **Patients** | Patients you have recorded |
+| **Doctor Info** | Profile your assigned doctors |
+
+You only see the cards your administrator has given you access to.
+
+### Doctor Info
+
+Tap **Doctor Info** to profile the doctors assigned to you. The top of the screen shows how many you have done, for example **12/40**. Doctors still to do (**Pending**) are listed first.
+
+- Tap a **Pending** doctor to open the profile form. It has six steps: PMDC verification, personal, professional, practice locations, commercial and accessibility, then a review.
+- The doctor's PMDC details fill in by themselves. Take a photo of the doctor's **visiting card** with the camera — it is required.
+- **Other Company Prescriber** percentages must add up to **100%**.
+- If the doctor's hospital is not in the list, choose **+ Add a hospital not listed** and type the full name (no short forms).
+- Tap **Save Profile** on the last step. A saved doctor shows **Captured**, and you can open it to read the profile. A profile cannot be changed after it is uploaded.
+- It works **without internet**. The doctor shows **Waiting to sync** until the profile uploads. Until then you can open it and tap **Discard Profile** to remove it and start again.
+- If you leave the form part-way, what you typed is kept on the phone for next time.
 
 ---
 

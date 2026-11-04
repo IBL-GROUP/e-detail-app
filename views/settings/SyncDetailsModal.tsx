@@ -185,8 +185,14 @@ export function SyncDetailsModal({ visible, onClose, backlog }: SyncDetailsModal
 
   const isBusy = isSubmitting || status === 'syncing';
   const canSync = isOnline && !isBusy;
-  const { pendingCalls, rejectedCalls, pendingPatients, unsyncedCalls, unsyncedTotal } =
-    backlog;
+  const {
+    pendingCalls,
+    rejectedCalls,
+    pendingPatients,
+    pendingProfiles,
+    unsyncedCalls,
+    unsyncedTotal,
+  } = backlog;
   const showSyncButton = unsyncedTotal > 0 || isBusy;
 
   // Upload first, then download — the fresh pull then already reflects the
@@ -222,6 +228,7 @@ export function SyncDetailsModal({ visible, onClose, backlog }: SyncDetailsModal
     pendingCalls > 0 ? plural(pendingCalls, 'call') : null,
     rejectedCalls > 0 ? `${plural(rejectedCalls, 'call')} rejected` : null,
     pendingPatients.length > 0 ? plural(pendingPatients.length, 'patient') : null,
+    pendingProfiles.length > 0 ? plural(pendingProfiles.length, 'doctor profile') : null,
   ].filter(Boolean);
 
   return (
@@ -317,6 +324,21 @@ export function SyncDetailsModal({ visible, onClose, backlog }: SyncDetailsModal
                       <Ionicons name="person-outline" size={14} color={Colors.textMuted} />
                       <Text style={styles.patientName} numberOfLines={1}>
                         {p.patient.patient_name || 'Unnamed patient'}
+                      </Text>
+                      <StateBadge state="pending" />
+                    </View>
+                  ))}
+                </View>
+              ) : null}
+
+              {/* Doctor profiles queued offline, listed the same way. */}
+              {pendingProfiles.length > 0 ? (
+                <View style={styles.patientList}>
+                  {pendingProfiles.map((p) => (
+                    <View key={p.clientLocalId} style={styles.patientRow}>
+                      <Ionicons name="id-card-outline" size={14} color={Colors.textMuted} />
+                      <Text style={styles.patientName} numberOfLines={1}>
+                        {p.profile.doctorName || p.profile.pmdcNumber || 'Doctor profile'}
                       </Text>
                       <StateBadge state="pending" />
                     </View>

@@ -87,6 +87,16 @@ export default function TabLayout() {
         name="patients"
         options={{ href: null }}
       />
+      <Tabs.Screen
+        name="doctor-profiles"
+        options={{ href: null }}
+      />
+      {/* One doctor's profile or capture form, inside the tabs like the
+          doctor detail, so the bottom nav stays visible. */}
+      <Tabs.Screen
+        name="doctor-profile/[pmdc]"
+        options={{ href: null }}
+      />
 
       {/* Doctor detail lives inside the tabs so the bottom nav stays visible. */}
       <Tabs.Screen
