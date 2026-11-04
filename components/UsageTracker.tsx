@@ -4,6 +4,7 @@ import NetInfo from '@react-native-community/netinfo';
 import { usePathname } from 'expo-router';
 
 import { useAuth } from '@/providers/AuthProvider';
+import { noteAlive, noteRunState } from '@/lib/crash/crashReporter';
 import {
   checkpointSpans,
   closeSpan,
@@ -106,6 +107,21 @@ export function UsageTracker() {
       void closeSpan('network', endReason);
     }
   }, [active, userKey, online]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // The crash reporter's view of the run: where the rep is, and whether the
+  // app is on screen — a run that ends while on screen was not closed normally.
+  const onScreen = appState === 'active';
+  useEffect(() => {
+    noteRunState({ user: usageUser, screen, foreground: onScreen });
+  }, [onScreen, userKey, screen]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ...and a heartbeat while on screen, so a report says when it was last alive
+  // — signed in or not.
+  useEffect(() => {
+    if (!onScreen) return;
+    const alive = setInterval(() => void noteAlive(), CHECKPOINT_MS);
+    return () => clearInterval(alive);
+  }, [onScreen]);
 
   // While open: checkpoint, and offer the queue to the server now and then.
   useEffect(() => {

@@ -4,6 +4,7 @@ import React from 'react';
 import { HapticTab } from '@/components/haptic-tab';
 import { IconSymbol } from '@/components/ui/icon-symbol';
 import { Colors } from '@/constants/theme';
+import { usePermissions } from '@/lib/auth/permissions';
 
 // Default tab after entering (tabs) is Analytics.
 export const unstable_settings = {
@@ -11,6 +12,11 @@ export const unstable_settings = {
 };
 
 export default function TabLayout() {
+  // The e-Detailing and Analytics tabs follow their dashboard card's permission
+  // (see views/dashboard) — hidden until granted, and while still unknown.
+  const { canView } = usePermissions();
+  const hiddenUnless = (section: string) => (canView(section) ? {} : { href: null });
+
   return (
     <Tabs
       screenOptions={{
@@ -44,6 +50,7 @@ export default function TabLayout() {
         options={{
           title: 'e-Detailing',
           tabBarIcon: ({ color }) => <IconSymbol size={24} name="calendar.badge.checkmark" color={color} />,
+          ...hiddenUnless('E_DETAILING'),
         }}
       />
       <Tabs.Screen
@@ -51,6 +58,7 @@ export default function TabLayout() {
         options={{
           title: 'Analytics',
           tabBarIcon: ({ color }) => <IconSymbol size={24} name="chart.bar.xaxis" color={color} />,
+          ...hiddenUnless('ANALYTICS'),
         }}
       />
       <Tabs.Screen

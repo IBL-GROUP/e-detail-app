@@ -130,6 +130,13 @@ export function AppCarousel<T>({
           enabled={canSwipe}
           onConfigurePanGesture={configurePanGesture}
           pagingEnabled
+          // Only the slide on screen and one either side are mounted (the
+          // neighbours peek in at the edges). Left at the library default,
+          // EVERY slide mounted at once, and a call opened by decoding its whole
+          // deck in the same second — several hundred MB on a 12-slide deck,
+          // enough for Android to close the app on a low-memory phone. With
+          // loop off, the library mounts [index - (n-1), index + (n-1)].
+          windowSize={2}
           overscrollEnabled={false}
           scrollAnimationDuration={280}
           defaultIndex={currentIndex}

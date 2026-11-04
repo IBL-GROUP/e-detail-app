@@ -46,6 +46,7 @@ import {
 import { useIsOnline } from '@/api/offlineFallback';
 import { useAfterInteractions } from '@/hooks/use-after-interactions';
 import { setScreenView } from '@/lib/usage/usageLog';
+import { PermissionGate } from '@/components/PermissionGate';
 
 const callVolumeData: LineChartDataPoint[] = [
   { label: 'Jan', value: 45 },
@@ -279,7 +280,18 @@ function formatRangeLabel(start: Date, end: Date) {
   return startText === endText ? startText : `${startText} – ${endText}`;
 }
 
-export default function AnalyticsScreen() {
+// Gated because this is the tab the app opens on (unstable_settings), so a rep
+// without ANALYTICS would otherwise land here. Outside the screen itself, which
+// runs many hooks and can't return early.
+export default function GatedAnalyticsScreen() {
+  return (
+    <PermissionGate section="ANALYTICS">
+      <AnalyticsScreen />
+    </PermissionGate>
+  );
+}
+
+function AnalyticsScreen() {
   const contentReady = useAfterInteractions();
   const { user } = useAuth();
   const { width } = useWindowDimensions();

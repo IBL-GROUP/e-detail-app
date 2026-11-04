@@ -39,6 +39,7 @@ import {
 import { bootstrapPlannedBulk } from '@/lib/offline/plannedBulk';
 import { OFFLINE_SYNC_KEY } from '@/config/app-sync';
 import { recordUsageEvent } from '@/lib/usage/usageLog';
+import { loadPermissions, resetPermissions } from '@/lib/auth/permissions';
 
 /**
  * The mobile app is used exclusively by TSOs / MIEs (field reps), so the only
@@ -103,11 +104,17 @@ interface AuthContextValue {
 /** How often an offline session retries the real login while it can. */
 const ONLINE_RETRY_MS = 30_000;
 /**
- * How long a sign-in waits for the server before falling back to the on-device
- * check. The API default (30s) is right for data calls but far too long to
- * leave a rep staring at a spinner on a weak signal.
+ * How long the background retry that upgrades an offline session waits for
+ * the server — short, so it never holds anything up.
  */
 const LOGIN_TIMEOUT_MS = 12_000;
+/**
+ * How long a sign-in the rep tapped waits for the server while the phone HAS a
+ * connection. A slow connection is still a connection: 12s used to give up on
+ * it and switch the rep to the offline sign-in although the server would have
+ * answered. Offline sign-in is now only for a phone with no internet.
+ */
+const SIGN_IN_TIMEOUT_MS = 60_000;
 /** Same idea for the login-list download that runs when the app opens. */
 const OFFLINE_USERS_TIMEOUT_MS = 8_000;
 
@@ -159,6 +166,7 @@ const sessionFileUri = FileSystem.documentDirectory
 async function apiLogin(
   username: string,
   password: string,
+  timeout: number = LOGIN_TIMEOUT_MS,
 ): Promise<PersistedSession> {
   let payload: LoginResponse;
   try {
@@ -166,7 +174,7 @@ async function apiLogin(
     payload = (await axios.post(
       '/auth/login',
       { username: username.trim(), password },
-      { timeout: LOGIN_TIMEOUT_MS },
+      { timeout },
     )) as unknown as LoginResponse;
   } catch (error: any) {
     const message =
@@ -431,14 +439,28 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (await isDefinitelyOffline()) {
         throw Object.assign(new Error('offline'), { isNetworkError: true });
       }
-      const signedIn = await startOnlineSessionHonouringPending(username, password);
+      // The phone has a connection — slow or not, sign in ONLINE: wait for the
+      // server (SIGN_IN_TIMEOUT_MS) rather than switching to the offline check.
+      let signedIn;
+      try {
+        signedIn = await startOnlineSessionHonouringPending(username, password, SIGN_IN_TIMEOUT_MS);
+      } catch (error: any) {
+        // Didn't get through. Only if the connection has gone meanwhile is this
+        // an offline sign-in; with a connection still there, say so and let the
+        // rep try again — never quietly switch them to offline.
+        if (error?.isNetworkError && !(await isDefinitelyOffline())) {
+          throw new Error(
+            'Your connection is too slow to reach the server right now. Please check your signal and try again.',
+          );
+        }
+        throw error;
+      }
       void recordUsageEvent('login', signedIn, { mode: 'online' });
     } catch (error: any) {
-      // Only fall back to offline login when the server was unreachable — a real
-      // 401/403 must still surface as an invalid-credentials error. "Unreachable"
-      // includes a login that timed out on a slow network, so the server may well
-      // answer later requests: the session upgrades itself when it does (see
-      // upgradeOfflineSession) rather than being logged out by the first 401.
+      // Offline sign-in only for a phone with no internet (above) — a real
+      // 401/403 must still surface as an invalid-credentials error, and a slow
+      // connection gets the message above. The offline session upgrades itself
+      // once the server answers (see upgradeOfflineSession).
       if (error?.isNetworkError) {
         // 1) Any active user via the on-device login mirror.
         const mirrorRecord = await verifyOfflineUser(username, password);
@@ -463,8 +485,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   };
 
-  async function startOnlineSession(username: string, password: string) {
-    const nextSession = await apiLogin(username, password);
+  async function startOnlineSession(username: string, password: string, timeout?: number) {
+    const nextSession = await apiLogin(username, password, timeout);
     pendingCredentialsRef.current = null;
     setCanResumeOnline(false);
     setAccessToken(nextSession.token);
@@ -486,14 +508,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
    * OLD one. Sign in with the old one (it is in the queued change) and let the
    * queue deliver the new one right after.
    */
-  async function startOnlineSessionHonouringPending(username: string, password: string) {
+  async function startOnlineSessionHonouringPending(username: string, password: string, timeout?: number) {
     try {
-      return await startOnlineSession(username, password);
+      return await startOnlineSession(username, password, timeout);
     } catch (error: any) {
       if (error?.isNetworkError) throw error;
       const pending = await pendingChangeFor(username);
       if (!pending || pending.newPassword !== password) throw error;
-      return startOnlineSession(username, pending.currentPassword);
+      return startOnlineSession(username, pending.currentPassword, timeout);
     }
   }
 
@@ -729,6 +751,23 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
   const flushPasswordRef = useRef(flushPendingPasswordChange);
   flushPasswordRef.current = flushPendingPasswordChange;
+
+  // The rep's dashboard permissions (lib/auth/permissions): from the device
+  // cache at once, then from the server whenever there is a real session — on
+  // sign-in, app open, an offline session upgrading, and on reconnect.
+  const permissionsUserId = user ? String(user.userId) : null;
+  useEffect(() => {
+    if (!permissionsUserId) {
+      resetPermissions();
+      return;
+    }
+    const online = Boolean(token) && !isOfflineSessionToken(token);
+    void loadPermissions(permissionsUserId, online);
+    if (!online) return;
+    return NetInfo.addEventListener((state) => {
+      if (state.isConnected) void loadPermissions(permissionsUserId, true);
+    });
+  }, [permissionsUserId, token]);
 
   // Deliver a queued change as soon as a real session exists, and on reconnect.
   useEffect(() => {

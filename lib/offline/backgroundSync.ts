@@ -5,6 +5,13 @@ import { readStoredSession } from '@/providers/AuthProvider';
 import { runSync } from '@/lib/offline/runSync';
 import { getSyncMeta, todayWorkday } from '@/lib/offline/syncMeta';
 import { flushUsageToDisk, recordUsageEvent } from '@/lib/usage/usageLog';
+import {
+  hasWorkingInternet,
+  syncErrorCode,
+  syncNetworkFields,
+  syncSpeedFields,
+  type SyncDownload,
+} from '@/lib/usage/syncNetwork';
 
 export const BACKGROUND_SYNC_TASK = 'e-detail-background-sync';
 
@@ -31,20 +38,38 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
       return BackgroundTask.BackgroundTaskResult.Success;
     }
 
+    // No working internet: nothing to sync with — not a sync, not logged. The
+    // OS runs the task again later, and the app-open catch-up still covers it.
+    // (No retry here, unlike the foreground: the OS gives a background task
+    // little time, and a 10s wait would spend it.)
+    if (!(await hasWorkingInternet())) {
+      return BackgroundTask.BackgroundTaskResult.Success;
+    }
+
     // Logged for the usage report as an automatic sync. The event waits in the
     // on-device queue and is uploaded the next time the app is open and online.
     const startedAt = Date.now();
-    const logSync = (outcome: 'success' | 'error', error?: unknown) =>
-      recordUsageEvent('sync', user, {
+    // The connection as it starts and the speed of the day's data, as the
+    // foreground sync records them (SyncProvider).
+    const network = syncNetworkFields();
+    let download: SyncDownload | null = null;
+    const logSync = async (outcome: 'success' | 'error', error?: unknown) => {
+      const seconds = Math.round((Date.now() - startedAt) / 1000);
+      return recordUsageEvent('sync', user, {
         trigger: 'auto',
         source: 'background',
         outcome,
         started_at: new Date(startedAt).toISOString(),
-        seconds: Math.round((Date.now() - startedAt) / 1000),
+        seconds,
         error: error ? String((error as Error)?.message ?? error).slice(0, 300) : null,
+        error_code: error ? syncErrorCode(error) : null,
+        attempts: 1,
+        ...(await network),
+        ...syncSpeedFields(download),
       });
+    };
     try {
-      await runSync({ mieId: user.mieId, teamId: user.teamId });
+      await runSync({ mieId: user.mieId, teamId: user.teamId, onDownload: (d) => { download = d; } });
     } catch (error) {
       await logSync('error', error);
       await flushUsageToDisk();
