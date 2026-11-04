@@ -4,7 +4,8 @@ import { useArrival } from '@/lib/location/useArrival';
 import { useSpecialties } from '@/api/content';
 import { AppBottomSheetSelect } from '@/components/ui/AppBottomSheetSelect';
 import { router } from 'expo-router';
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
+import { useFocusEffect } from '@react-navigation/native';
 import { Alert, StyleSheet, Text, View } from 'react-native';
 import { ArrivedButton } from './doctor-detail/ArrivedButton';
 import { CancelCallButton } from './doctor-detail/CancelCallButton';
@@ -23,6 +24,14 @@ export function InstitutionCallPanel() {
   const { user } = useAuth();
   const [isCancelVisible, setIsCancelVisible] = useState(false);
   const [isCancelling, setIsCancelling] = useState(false);
+  // Start Call opens the call screen ONCE — a double tap used to open two, each
+  // saved as its own call (see the doctor screen). Re-armed on coming back.
+  const openingCallRef = useRef(false);
+  useFocusEffect(
+    useCallback(() => {
+      openingCallRef.current = false;
+    }, []),
+  );
 
   // Forcing for an institution call is driven by the chosen specialty. Only the
   // ones this rep has doctors for — the rest would offer nothing to pick at the
@@ -120,6 +129,9 @@ export function InstitutionCallPanel() {
       explainNoContent(deckStatus);
       return;
     }
+    // A second tap while the call screen is opening is ignored.
+    if (openingCallRef.current) return;
+    openingCallRef.current = true;
     // The arrival is now this call's, so leaving this tab must NOT report it
     // as a walk-away.
     consume();

@@ -1,3 +1,4 @@
+import type { Query } from '@tanstack/react-query';
 import type { Persister, PersistedClient } from '@tanstack/react-query-persist-client';
 import { afterInteractions } from '@/lib/afterInteractions';
 import { readJson, writeJson, removeRaw } from './fileStore';
@@ -69,3 +70,14 @@ export function createFilePersister(): Persister {
 // Single shared instance used by both the React provider and the headless
 // background sync (so they read/write the same cache file).
 export const filePersister = createFilePersister();
+
+/**
+ * Which queries are written to the device: any that HOLDS DATA. A refresh that
+ * fails (no signal, or a 410 from a network in the way) marks the query
+ * 'error' but keeps its data — saving only 'success' ones used to drop that
+ * data from disk on the next save, so after the app restarted a doctor's slides
+ * were gone ("The content for this call is not on the phone yet") although the
+ * last sync had put them there. Nothing without data — loading, never fetched
+ * — is saved, as before.
+ */
+export const shouldPersistQuery = (query: Query): boolean => query.state.data !== undefined;

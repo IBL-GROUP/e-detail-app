@@ -8,7 +8,7 @@ import {
   useState,
   type ReactNode,
 } from 'react';
-import { AppState } from 'react-native';
+import { Alert, AppState } from 'react-native';
 import NetInfo from '@react-native-community/netinfo';
 
 import { useAuth } from '@/providers/AuthProvider';
@@ -17,6 +17,15 @@ import { getSyncMeta, todayWorkday } from '@/lib/offline/syncMeta';
 import { runSync } from '@/lib/offline/runSync';
 import { seedPlannedFromBulk } from '@/lib/offline/plannedBulk';
 import { flushUsage, recordUsageEvent } from '@/lib/usage/usageLog';
+import {
+  SYNC_RETRY_DELAY_MS,
+  hasWorkingInternet,
+  isRetryableSyncError,
+  syncErrorCode,
+  syncNetworkFields,
+  syncSpeedFields,
+  type SyncDownload,
+} from '@/lib/usage/syncNetwork';
 import { prefetchAnalytics } from '@/lib/offline/prefetchAnalytics';
 
 type SyncStatus = 'idle' | 'syncing' | 'success' | 'error';
@@ -102,7 +111,10 @@ export function SyncProvider({ children }: { children: ReactNode }) {
   // separately in QueryProvider).
   useEffect(() => {
     const unsubscribe = NetInfo.addEventListener((state) => {
-      const next = Boolean(state.isConnected);
+      // Online = internet that works: a network known to have none (Wi-Fi with
+      // no internet, a captive portal) is not online. When it starts working
+      // this flips to true, which re-runs the auto syncs below.
+      const next = Boolean(state.isConnected) && state.isInternetReachable !== false;
       // On reconnect, allow one fresh auto catch-up attempt.
       if (!wasOnlineRef.current && next) {
         autoSyncAttemptedRef.current = false;
@@ -142,18 +154,48 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     if (!mieId || !teamId || !isAuthenticated) return;
 
     runningRef.current = true;
+    // No working internet: a sync can only fail, so none is started — not a
+    // sync, not logged. A rep who tapped Sync is told why instead; their work
+    // is already on the phone and goes up when the internet is back.
+    if (!(await hasWorkingInternet())) {
+      runningRef.current = false;
+      if (MANUAL_SOURCES.has(source)) {
+        Alert.alert(
+          "You're offline",
+          'Connect to Wi-Fi or mobile data to sync. Your work is saved on this phone and will sync when you are back online.',
+        );
+      }
+      // Re-arm the login and catch-up syncs below, so they run when the
+      // internet comes back (isOnline flipping true re-runs them).
+      loginSyncedForRef.current = null;
+      autoSyncAttemptedRef.current = false;
+      return;
+    }
     setStatus('syncing');
     setProgress(null);
     const startedAt = Date.now();
-    const logSync = (outcome: 'success' | 'error', error?: unknown) =>
-      void recordUsageEvent('sync', user, {
+    // 1, or 2 when the first try got no answer and the retry below ran.
+    let attempts = 0;
+    // The connection as the sync starts, and the speed the day's data came at —
+    // so the report can say whether failures are the network (Wi-Fi or mobile
+    // data, how fast) or something else.
+    const network = syncNetworkFields();
+    let download: SyncDownload | null = null;
+    const logSync = (outcome: 'success' | 'error', error?: unknown) => {
+      const seconds = Math.round((Date.now() - startedAt) / 1000);
+      void network.then((net) => recordUsageEvent('sync', user, {
         trigger: MANUAL_SOURCES.has(source) ? 'manual' : 'auto',
         source,
         outcome,
         started_at: new Date(startedAt).toISOString(),
-        seconds: Math.round((Date.now() - startedAt) / 1000),
+        seconds,
         error: error ? String((error as Error)?.message ?? error).slice(0, 300) : null,
-      });
+        error_code: error ? syncErrorCode(error) : null,
+        attempts,
+        ...net,
+        ...syncSpeedFields(download),
+      }));
+    };
 
     try {
       // At most a few progress updates a second (and always the last one): each
@@ -166,7 +208,20 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         lastProgressAt = now;
         setProgress(next);
       };
-      await runSync({ mieId, teamId, onProgress });
+      const attempt = () => {
+        attempts += 1;
+        return runSync({ mieId, teamId, onProgress, onDownload: (d) => { download = d; } });
+      };
+      try {
+        await attempt();
+      } catch (first) {
+        // No answer or timed out: try once more after a short wait, if the
+        // phone still has internet. Logged as ONE sync, with `attempts`.
+        if (!isRetryableSyncError(first)) throw first;
+        await new Promise((resolve) => setTimeout(resolve, SYNC_RETRY_DELAY_MS));
+        if (!(await hasWorkingInternet())) throw first;
+        await attempt();
+      }
       const meta = await getSyncMeta();
       setLastSyncedFor(meta.lastSyncedFor);
       setLastSyncedAt(meta.lastSyncedAt);

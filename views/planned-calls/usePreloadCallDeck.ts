@@ -39,6 +39,8 @@ export function explainNoContent(status: CallDeckStatus) {
 
 /** Opening slides decoded ahead of time, so the first swipe is instant. */
 const WARM_FIRST_SLIDES = 3;
+/** How often a deck whose fetch failed is tried again, while the screen is open. */
+const DECK_RETRY_MS = 20_000;
 const VIDEO = /\.(mp4|webm|mov|ogv)(\?|#|$)/i;
 
 /**
@@ -98,6 +100,21 @@ export function usePreloadCallDeck(params: ForcingContentParams): { status: Call
       cancelled = true;
     };
   }, [deckKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // No slides because the fetch FAILED (a weak signal, a 410 from a network in
+  // the way) — not because the phone is offline, where React Query resumes by
+  // itself on reconnect: keep trying while the rep is on this screen, so the
+  // "not on the phone yet" note clears itself once a request gets through.
+  // React Query's own retry gives up after one more try.
+  const fetchFailed = !slides && deck.isError && deck.fetchStatus !== 'paused';
+  const { refetch } = deck;
+  useEffect(() => {
+    if (!fetchFailed) return;
+    const timer = setInterval(() => {
+      void refetch();
+    }, DECK_RETRY_MS);
+    return () => clearInterval(timer);
+  }, [fetchFailed, refetch]);
 
   const hasKey = Boolean(params.teamId && (params.doctorId || params.specialtyId));
   const status: CallDeckStatus = !hasKey

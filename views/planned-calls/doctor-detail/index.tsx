@@ -2,7 +2,7 @@ import { Colors } from '@/constants/theme';
 import { useArrival } from '@/lib/location/useArrival';
 import { useAuth } from '@/providers/AuthProvider';
 import { router } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useFocusEffect } from '@react-navigation/native';
 import { useQueryClient } from '@tanstack/react-query';
 import { Alert, ScrollView, StyleSheet, Text, View } from 'react-native';
@@ -144,8 +144,16 @@ export default function DoctorDetail({
   // Coming back to this doctor (from a call, or from the list after one) must
   // re-read the month's calls: the cached summary was fetched before the call
   // existed, and its 60s staleTime otherwise left the new call off the report.
+  // Start Call opens the call screen ONCE. Without this, a double or triple tap
+  // pushed two or three call screens, each with its own call: the rep ended the
+  // top one and the others ran on underneath (some until the next morning), and
+  // every one was saved as a completed call — duplicate calls on prod in
+  // Sep/Oct 2026. Re-armed when the rep is back on this screen.
+  const openingCallRef = useRef(false);
+
   useFocusEffect(
     useCallback(() => {
+      openingCallRef.current = false;
       void queryClient.invalidateQueries({ queryKey: ['doctor-call-summary'] });
     }, [queryClient])
   );
@@ -259,6 +267,9 @@ export default function DoctorDetail({
                     explainNoContent(deckStatus);
                     return;
                   }
+                  // A second tap while the call screen is opening is ignored.
+                  if (openingCallRef.current) return;
+                  openingCallRef.current = true;
                   // The arrival is now this call's, so leaving this screen
                   // must NOT report it as a walk-away.
                   consume();
