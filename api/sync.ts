@@ -23,7 +23,10 @@ export interface DailySyncResponse {
 interface DailySyncParams {
   teamId: number;
   mieId: string;
-  /** Told the size of the day's data and how long it took, once it arrives. */
+  /**
+   * Told the size of the day's data and how long it took — once it arrives, or
+   * what had arrived when the request failed (nothing, when no answer came).
+   */
   onDownload?: (download: { bytes: number; ms: number }) => void;
 }
 
@@ -37,12 +40,14 @@ export const getDailySync = async ({
   // Bytes received, as the download reports them — the response interceptor
   // hands back only the body, so the size is taken on the way in.
   let bytes = 0;
-  const payload = (await axios.get(ApiEndpoints.syncDaily, {
-    params: { teamId, mieId },
-    onDownloadProgress: (event) => {
-      if (typeof event.loaded === 'number') bytes = event.loaded;
-    },
-  })) as unknown as DailySyncResponse;
-  onDownload?.({ bytes, ms: Date.now() - startedAt });
-  return payload;
+  try {
+    return (await axios.get(ApiEndpoints.syncDaily, {
+      params: { teamId, mieId },
+      onDownloadProgress: (event) => {
+        if (typeof event.loaded === 'number') bytes = event.loaded;
+      },
+    })) as unknown as DailySyncResponse;
+  } finally {
+    onDownload?.({ bytes, ms: Date.now() - startedAt });
+  }
 };

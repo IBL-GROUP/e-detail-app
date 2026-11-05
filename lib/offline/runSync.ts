@@ -31,7 +31,7 @@ export interface RunSyncParams {
   mieId: string;
   teamId: number;
   onProgress?: (progress: DownloadProgress) => void;
-  /** The day's data arrived: its size and how long it took (for the usage log). */
+  /** The day's data download: its size and how long it took, or how far it got (for the usage log). */
   onDownload?: (download: { bytes: number; ms: number }) => void;
 }
 
