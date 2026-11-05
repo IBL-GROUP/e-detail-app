@@ -64,20 +64,38 @@ export function isRetryableSyncError(error: unknown): boolean {
 export const SYNC_RETRY_DELAY_MS = 10_000;
 
 /**
- * How fast the day's data came: its size, the time it took, and kilobits a
- * second. For a failed sync, what had arrived by the time it failed.
+ * How the day's data came down — for a failed sync, as far as it got:
+ *   bytes     what arrived
+ *   ms        request sent → done (or failed)
+ *   waitMs    request sent → first data: the server building it plus the trip
+ *             (all of `ms` when no data came at all)
+ *   serverMs  the server's own build time, from its header (null when no
+ *             answer came)
  */
 export interface SyncDownload {
   bytes: number;
   ms: number;
+  waitMs: number;
+  serverMs: number | null;
 }
 
+/** Below this the download is too short to time on its own. */
+const MIN_TIMED_DOWNLOAD_MS = 200;
+
 export function syncSpeedFields(download: SyncDownload | null | undefined): Record<string, number | null> {
-  if (!download || download.bytes <= 0 || download.ms <= 0) return {};
+  if (!download || download.bytes < 0 || download.ms <= 0) return {};
+  // The connection's speed: what arrived ÷ the time it took to arrive, from
+  // the first data on — the server's build time left out, so a slow server
+  // does not read as a slow connection. A download too quick to time is
+  // measured over the whole request. Nothing arrived before it failed: 0.
+  const downloadMs = download.ms - download.waitMs;
+  const timedMs = downloadMs >= MIN_TIMED_DOWNLOAD_MS ? downloadMs : download.ms;
   return {
     bytes: download.bytes,
-    download_ms: download.ms,
+    download_ms: downloadMs,
+    wait_ms: download.waitMs,
+    server_ms: download.serverMs,
     // bits ÷ milliseconds = kilobits a second.
-    kbps: Math.round((download.bytes * 8) / download.ms),
+    kbps: Math.round((download.bytes * 8) / timedMs),
   };
 }

@@ -20,6 +20,7 @@ import { getDailySync } from '@/api/sync';
 import { teamSkusKey } from '@/api/sku';
 import { syncImages, loadImageManifest, type DownloadProgress } from './imageCache';
 import { setSyncMeta } from './syncMeta';
+import type { SyncDownload } from '@/lib/usage/syncNetwork';
 
 /**
  * Gives the UI thread one turn. Sync runs on the same JS thread as the screen,
@@ -31,8 +32,8 @@ export interface RunSyncParams {
   mieId: string;
   teamId: number;
   onProgress?: (progress: DownloadProgress) => void;
-  /** The day's data download: its size and how long it took, or how far it got (for the usage log). */
-  onDownload?: (download: { bytes: number; ms: number }) => void;
+  /** How the day's data download went, or how far it got (for the usage log). */
+  onDownload?: (download: SyncDownload) => void;
 }
 
 /**
