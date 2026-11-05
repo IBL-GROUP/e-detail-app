@@ -1,4 +1,3 @@
-import { useMemo } from 'react';
 import { Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
@@ -30,7 +29,7 @@ export function CompanySharesField({
   const total = rows.reduce((sum, row) => sum + (Number(row.percent) || 0), 0);
   const remaining = Math.max(0, 100 - total);
 
-  const used = useMemo(() => new Set(rows.map((row) => row.company).filter(Boolean)), [rows]);
+  const used = new Set(rows.map((row) => row.company).filter(Boolean));
 
   const setRow = (index: number, patch: Partial<CompanyShare>) => {
     onChange(rows.map((row, position) => (position === index ? { ...row, ...patch } : row)));
@@ -106,7 +105,7 @@ export function CompanySharesField({
           <Text style={styles.addText}>Add company</Text>
         </Pressable>
         <Text style={[styles.total, total === 100 ? styles.totalOk : styles.totalWarn]}>
-          Total: {total}%
+          Total: {total}%{total === 100 ? '' : ' (must equal 100%)'}
         </Text>
       </View>
     </View>

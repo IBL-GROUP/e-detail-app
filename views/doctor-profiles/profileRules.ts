@@ -97,19 +97,19 @@ export const FIELD_HELP = {
   rxPatterns: 'Usually written by generic or brand?',
   pharmacyOwnership: 'Owns or co-owns a pharmacy?',
   practiceType: 'Main practice setting.',
-  practiceLocations: 'More than 1 adds a secondary practice location.',
+  practiceLocations: 'More than 1 unlocks the secondary practice step.',
   bestVisitingTime: 'Best time for a field visit at this practice.',
   appointmentSystem: 'Manual booking or a computerized appointment system.',
   session: 'Whether the session is mainly morning or evening.',
   hospital: 'Full name only — no short forms (e.g. AKUH).',
 } as const;
 
-/** The six steps, in the Searle app's order. */
+/** The six steps, in the Searle app's order, with its step copy. */
 export const STEPS = [
   {
     id: 'pmdc',
     title: 'PMDC Verification',
-    description: "Verify the registration and capture the doctor's visiting card.",
+    description: "Verify the registration number to auto-fill the practitioner's identity.",
   },
   {
     id: 'personal',
@@ -119,24 +119,28 @@ export const STEPS = [
   {
     id: 'professional',
     title: 'Professional Information',
-    description: 'Practice locations and type. More than one location adds a secondary practice.',
+    description: 'Practice locations and type. Multiple locations enable secondary practice.',
   },
   {
     id: 'practice',
     title: 'Practice Locations',
-    description: 'Where and when the doctor practises.',
+    description: 'Primary and secondary practice details on one screen for faster entry.',
   },
   {
     id: 'commercial',
     title: 'Commercial & Accessibility',
-    description: 'Prescribing behaviour, innovation adoption and access.',
+    description: 'Prescribing behavior, innovation adoption and access.',
   },
   {
     id: 'review',
     title: 'Review & Submit',
-    description: 'Confirm the profile before saving.',
+    description: 'Confirm the practitioner profile before saving.',
   },
 ] as const;
+
+/** Shown on the PMDC step, where the banner isn't (Searle's copy). */
+export const PMDC_STEP_HINT =
+  'Registration details loaded from your assigned list. Review and continue.';
 
 export type StepId = (typeof STEPS)[number]['id'];
 

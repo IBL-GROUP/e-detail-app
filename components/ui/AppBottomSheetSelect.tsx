@@ -29,6 +29,11 @@ interface AppBottomSheetSelectProps {
   triggerStyle?: StyleProp<ViewStyle>;
   triggerContentStyle?: StyleProp<ViewStyle>;
   triggerTextStyle?: StyleProp<TextStyle>;
+  /**
+   * Offer what was typed in the search box as a new option ("Add “…”") when
+   * nothing in the list matches it exactly. Off by default.
+   */
+  allowCustom?: boolean;
 }
 
 export function AppBottomSheetSelect({
@@ -45,6 +50,7 @@ export function AppBottomSheetSelect({
   triggerStyle,
   triggerContentStyle,
   triggerTextStyle,
+  allowCustom = false,
 }: AppBottomSheetSelectProps) {
   const [sheetVisible, setSheetVisible] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -62,6 +68,16 @@ export function AppBottomSheetSelect({
       option.toLowerCase().includes(normalizedQuery)
     );
   }, [options, searchQuery]);
+
+  // The typed text, offered as a new option when allowCustom is on and no
+  // option already has that name.
+  const customOption = useMemo(() => {
+    if (!allowCustom) return '';
+    const typed = searchQuery.trim().replace(/\s+/g, ' ');
+    if (!typed) return '';
+    const exists = options.some((option) => option.toLowerCase() === typed.toLowerCase());
+    return exists ? '' : typed;
+  }, [allowCustom, options, searchQuery]);
 
   useEffect(() => {
     if (sheetVisible) {
@@ -159,7 +175,23 @@ export function AppBottomSheetSelect({
               showsVerticalScrollIndicator={false}
               style={styles.listScroll}
               contentContainerStyle={styles.sheetList}
+              // So "Add …" works on the first tap while the keyboard is up.
+              keyboardShouldPersistTaps={allowCustom ? 'handled' : undefined}
             >
+              {customOption ? (
+                <Pressable
+                  onPress={() => {
+                    onChange(customOption);
+                    closeSheet();
+                  }}
+                  style={({ pressed }) => [styles.optionRow, pressed && styles.optionRowPressed]}
+                >
+                  <Text style={[styles.optionText, styles.optionTextSelected]}>
+                    + Add “{customOption}” as new
+                  </Text>
+                </Pressable>
+              ) : null}
+
               {filteredOptions.map((option) => (
                 <Pressable
                   key={option}
@@ -184,7 +216,7 @@ export function AppBottomSheetSelect({
                 </Pressable>
               ))}
 
-              {filteredOptions.length === 0 ? (
+              {filteredOptions.length === 0 && !customOption ? (
                 <Text style={styles.emptyText}>{emptyText}</Text>
               ) : null}
             </ScrollView>

@@ -106,6 +106,8 @@ export interface DoctorProfileListRow extends DoctorProfileRow {
   isPending: boolean;
   /** Set for anything this device holds — what Discard acts on. */
   localId?: string;
+  /** Why the last upload of a still-queued profile failed, if it did. */
+  syncError?: string | null;
 }
 
 /** One of the rep's planned doctors, with whether they have profiled them. */
@@ -256,6 +258,7 @@ function toListRow(local: LocalDoctorProfile): DoctorProfileListRow {
     createdAt: local.recordedAt,
     isPending: local.syncedAt == null,
     localId: local.clientLocalId,
+    syncError: local.syncedAt == null ? local.lastError : null,
   };
 }
 
@@ -313,6 +316,7 @@ export const useDoctorProfiles = (userId?: string) => {
         createdAt: row.createdAt,
         isPending: true,
         localId: match.clientLocalId,
+        syncError: match.lastError,
       };
     });
 

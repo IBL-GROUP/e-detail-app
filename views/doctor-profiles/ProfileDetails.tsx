@@ -1,119 +1,165 @@
-import { useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
 import type { CompanyShare, DoctorProfileRow } from '@/api/doctorProfiles';
 import { Colors } from '@/constants/theme';
 import { ImageViewerModal } from '@/views/patients/ImageViewerModal';
-import { SectionCard } from './formParts';
+import { DetailRow } from './formParts';
 import { filledShares, formatDoctorName, hasSecondaryPractice } from './profileRules';
 
-/** Anything a profile field can hold, shown as text; blank as a dash. */
-function show(value: unknown) {
-  const text = String(value ?? '').trim();
-  return text || '—';
-}
-
-/** One label / value line. */
-function Row({ label, value }: { label: string; value: unknown }) {
-  return (
-    <View style={styles.row}>
-      <Text style={styles.label}>{label}</Text>
-      <Text style={styles.value}>{show(value)}</Text>
-    </View>
-  );
-}
-
-/** The nine practice fields for one location. */
-function PracticeRows({ profile, side }: { profile: DoctorProfileRow; side: 'primary' | 'secondary' }) {
-  const field = (name: string) => (profile as Record<string, unknown>)[`${side}${name}`];
-  const minutes = String(field('AvgTime') ?? '').trim();
-  return (
-    <>
-      <Row label="Speciality" value={field('Speciality')} />
-      <Row label="City" value={field('City')} />
-      <Row label="Hospital" value={field('Hospital')} />
-      <Row label="Session" value={field('Session')} />
-      <Row label="Fee / Patient" value={field('Fee')} />
-      <Row label="Avg Time / Patient" value={minutes ? `${minutes} min` : ''} />
-      <Row label="Patients / Day" value={field('PatientsPerDay')} />
-      <Row label="OPD Timing" value={field('OpdTiming')} />
-      <Row label="Best Visiting Time" value={field('BestVisitingTime')} />
-      <Row label="Appointment System" value={field('AppointmentSystem')} />
-    </>
-  );
-}
+type Section = { key: string; label: string; render: () => ReactNode };
 
 /**
- * A doctor profile laid out read-only, section by section — the captured view
- * and the form's Review step both use it, so what a rep confirms before saving
- * is exactly what they will see afterwards.
+ * A captured profile, read-only — the Searle app's Doctor Details screen: a
+ * hero card with the doctor's name and PMDC, a segmented control
+ * (Profile · Specialty · Insights · Clinic 1 · Clinic 2), and the chosen
+ * section's rows in a card. In this app's colours.
  */
 export function ProfileDetails({ profile }: { profile: DoctorProfileRow }) {
+  const [activeKey, setActiveKey] = useState('profile');
   const [viewerOpen, setViewerOpen] = useState(false);
   const card = String(profile.visitingCardUrl ?? '').trim();
-  const shares = filledShares((profile.otherCompanyPrescribers ?? []) as CompanyShare[]);
   const secondary = hasSecondaryPractice(String(profile.practiceLocations ?? ''));
+
+  const sections = useMemo<Section[]>(() => {
+    const field = (name: string) => (profile as Record<string, unknown>)[name];
+    const clinicRows = (side: 'primary' | 'secondary') => {
+      const value = (name: string) => field(`${side}${name}`);
+      const minutes = String(value('AvgTime') ?? '').trim();
+      return (
+        <>
+          <DetailRow label="Hospital" value={value('Hospital')} />
+          <DetailRow label="City" value={value('City')} />
+          <DetailRow label="Session" value={value('Session')} />
+          <DetailRow label="Fee / Patient" value={value('Fee')} />
+          <DetailRow label="Avg Time" value={minutes ? `${minutes} min` : ''} />
+          <DetailRow label="Patients / Day" value={value('PatientsPerDay')} />
+          <DetailRow label="OPD Timing" value={value('OpdTiming')} />
+          <DetailRow label="Best Visiting Time" value={value('BestVisitingTime')} />
+          <DetailRow label="Appointment" value={value('AppointmentSystem')} />
+        </>
+      );
+    };
+
+    const list: Section[] = [
+      {
+        key: 'profile',
+        label: 'Profile',
+        render: () => (
+          <>
+            <DetailRow label="Father's Name" value={profile.fatherName} />
+            <DetailRow label="Issue Date" value={profile.issueDate} />
+            <DetailRow label="Religion" value={profile.religion} />
+            <DetailRow label="Age" value={profile.age} />
+            <DetailRow label="Gender" value={profile.gender} />
+            <DetailRow label="Cell No" value={profile.cellNo} />
+            <DetailRow label="WhatsApp" value={profile.whatsappNo} />
+            <DetailRow label="Digital Comfort" value={profile.digitalComfortLevel} />
+            <DetailRow label="Captured by" value={profile.createdBy} />
+            <View style={styles.cardBlock}>
+              <Text style={styles.cardLabel}>Visiting Card</Text>
+              {card ? (
+                <Pressable
+                  onPress={() => setViewerOpen(true)}
+                  style={({ pressed }) => [styles.cardImageWrap, pressed && styles.pressed]}
+                >
+                  <Image source={{ uri: card }} style={styles.cardImage} resizeMode="cover" />
+                </Pressable>
+              ) : (
+                <Text style={styles.cardMissing}>—</Text>
+              )}
+            </View>
+          </>
+        ),
+      },
+      {
+        key: 'specialty',
+        label: 'Specialty',
+        render: () => (
+          <>
+            <DetailRow label="Primary Speciality" value={profile.primarySpeciality} />
+            {String(profile.secondarySpeciality ?? '').trim() ? (
+              <DetailRow label="Secondary Speciality" value={profile.secondarySpeciality} />
+            ) : null}
+            <DetailRow label="Practice Locations" value={profile.practiceLocations} />
+            <DetailRow label="Practice Type" value={profile.practiceType} />
+          </>
+        ),
+      },
+      {
+        key: 'insights',
+        label: 'Insights',
+        render: () => (
+          <>
+            <DetailRow label="Innovation & Medicine Adoption" value={profile.innovationAdoption} />
+            <DetailRow label="Access Type" value={profile.accessType} />
+            <DetailRow label="Interaction Style" value={profile.preferredInteractionStyle} />
+            <DetailRow label="TSCL Prescriber" value={profile.rxStatus} />
+            <DetailRow label="Rx Patterns" value={profile.rxPatterns} />
+            <DetailRow label="Pharmacy Ownership" value={profile.pharmacyOwnership} />
+            <DetailRow
+              label="Other Company Prescriber"
+              value={filledShares((profile.otherCompanyPrescribers ?? []) as CompanyShare[])
+                .map((share) => `${share.company} – ${share.percent}%`)
+                .join('; ')}
+            />
+          </>
+        ),
+      },
+      { key: 'primary', label: secondary ? 'Clinic 1' : 'Clinic', render: () => clinicRows('primary') },
+    ];
+    if (secondary) {
+      list.push({ key: 'secondary', label: 'Clinic 2', render: () => clinicRows('secondary') });
+    }
+    return list;
+  }, [profile, secondary, card]);
+
+  const active = sections.find((section) => section.key === activeKey) ?? sections[0];
 
   return (
     <View style={styles.wrap}>
-      <SectionCard title="PMDC Registration" icon="shield-checkmark-outline">
-        <Row label="Doctor Name" value={formatDoctorName(profile.doctorName)} />
-        <Row label="PMDC Number" value={profile.pmdcNumber} />
-        <Row label="PMDC Status" value={profile.pmdcStatus} />
-        <Row label="Father's Name" value={profile.fatherName} />
-        <Row label="Issue Date" value={profile.issueDate} />
-        <View style={styles.cardBlock}>
-          <Text style={styles.label}>Visiting Card</Text>
-          {card ? (
-            <Pressable
-              onPress={() => setViewerOpen(true)}
-              style={({ pressed }) => [styles.cardImageWrap, pressed && styles.pressed]}
-            >
-              <Image source={{ uri: card }} style={styles.cardImage} resizeMode="cover" />
-            </Pressable>
-          ) : (
-            <Text style={styles.value}>—</Text>
-          )}
+      {/* Hero */}
+      <View style={styles.hero}>
+        <Text style={styles.eyebrow}>Doctor Profile</Text>
+        <Text style={styles.heroName}>{formatDoctorName(profile.doctorName) || '—'}</Text>
+        <View style={styles.chipRow}>
+          {profile.pmdcNumber ? (
+            <View style={styles.chip}>
+              <Ionicons name="card-outline" size={12} color={Colors.textOnDark} />
+              <Text style={styles.chipText}>PMDC {String(profile.pmdcNumber)}</Text>
+            </View>
+          ) : null}
+          {profile.pmdcStatus ? (
+            <View style={styles.chipOutline}>
+              <Text style={styles.chipOutlineText}>{String(profile.pmdcStatus)}</Text>
+            </View>
+          ) : null}
         </View>
-      </SectionCard>
+      </View>
 
-      <SectionCard title="Personal Information" icon="person-outline">
-        <Row label="Religion" value={profile.religion} />
-        <Row label="Age" value={profile.age} />
-        <Row label="Gender" value={profile.gender} />
-        <Row label="Cell No" value={profile.cellNo} />
-        <Row label="WhatsApp No" value={profile.whatsappNo} />
-        <Row label="Digital Comfort Level" value={profile.digitalComfortLevel} />
-      </SectionCard>
+      {/* Segmented control */}
+      <View style={styles.segments}>
+        {sections.map((section) => {
+          const selected = section.key === active.key;
+          return (
+            <Pressable
+              key={section.key}
+              onPress={() => setActiveKey(section.key)}
+              style={[styles.segment, selected && styles.segmentActive]}
+              accessibilityRole="tab"
+              accessibilityState={{ selected }}
+            >
+              <Text style={[styles.segmentText, selected && styles.segmentTextActive]} numberOfLines={1}>
+                {section.label}
+              </Text>
+            </Pressable>
+          );
+        })}
+      </View>
 
-      <SectionCard title="Professional Information" icon="briefcase-outline">
-        <Row label="Practice Locations" value={profile.practiceLocations} />
-        <Row label="Practice Type" value={profile.practiceType} />
-      </SectionCard>
-
-      <SectionCard title={secondary ? 'Primary Practice' : 'Practice Location'} icon="business-outline">
-        <PracticeRows profile={profile} side="primary" />
-      </SectionCard>
-
-      {secondary ? (
-        <SectionCard title="Secondary Practice" icon="business-outline">
-          <PracticeRows profile={profile} side="secondary" />
-        </SectionCard>
-      ) : null}
-
-      <SectionCard title="Commercial & Accessibility" icon="trending-up-outline">
-        <Row label="Innovation & Medicine Adoption" value={profile.innovationAdoption} />
-        <Row label="Access Type" value={profile.accessType} />
-        <Row label="Preferred Interaction Style" value={profile.preferredInteractionStyle} />
-        <Row label="TSCL Prescriber" value={profile.rxStatus} />
-        <Row label="Rx Patterns" value={profile.rxPatterns} />
-        <Row label="Pharmacy Ownership" value={profile.pharmacyOwnership} />
-        <Row
-          label="Other Company Prescriber"
-          value={shares.map((share) => `${share.company} ${share.percent}%`).join(', ')}
-        />
-      </SectionCard>
+      {/* The chosen section */}
+      <View style={styles.card}>{active.render()}</View>
 
       {card ? (
         <ImageViewerModal
@@ -128,30 +174,117 @@ export function ProfileDetails({ profile }: { profile: DoctorProfileRow }) {
 
 const styles = StyleSheet.create({
   wrap: {
-    gap: 14,
-  },
-  row: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
     gap: 12,
   },
-  label: {
-    flexShrink: 0,
-    maxWidth: '48%',
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.textMuted,
+  // This app's navy, where Searle's hero uses its own.
+  hero: {
+    borderRadius: 14,
+    backgroundColor: Colors.secondary,
+    padding: 16,
+    gap: 6,
   },
-  value: {
-    flex: 1,
-    textAlign: 'right',
-    fontSize: 14,
+  eyebrow: {
+    color: 'rgba(255,255,255,0.7)',
+    fontSize: 11,
     fontWeight: '700',
-    color: Colors.text,
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  heroName: {
+    color: Colors.textOnDark,
+    fontSize: 22,
+    fontWeight: '800',
+  },
+  chipRow: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+    marginTop: 2,
+  },
+  chip: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    height: 24,
+    borderRadius: 6,
+    paddingHorizontal: 8,
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  chipText: {
+    color: Colors.textOnDark,
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+  },
+  chipOutline: {
+    height: 24,
+    justifyContent: 'center',
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.4)',
+    paddingHorizontal: 8,
+  },
+  chipOutlineText: {
+    color: 'rgba(255,255,255,0.85)',
+    fontSize: 11,
+    fontWeight: '700',
+    letterSpacing: 0.4,
+  },
+  segments: {
+    flexDirection: 'row',
+    gap: 6,
+  },
+  segment: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    paddingHorizontal: 2,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.surface,
+  },
+  segmentActive: {
+    backgroundColor: Colors.primary,
+    borderColor: Colors.primary,
+  },
+  segmentText: {
+    fontSize: 11,
+    fontWeight: '800',
+    color: Colors.textMuted,
+    letterSpacing: 0.3,
+    textTransform: 'uppercase',
+  },
+  segmentTextActive: {
+    color: Colors.textOnDark,
+  },
+  card: {
+    borderRadius: 14,
+    backgroundColor: Colors.surface,
+    paddingHorizontal: 16,
+    paddingVertical: 6,
+    shadowColor: '#0F172A',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 8,
+    elevation: 2,
   },
   cardBlock: {
     gap: 8,
+    paddingVertical: 10,
+  },
+  cardLabel: {
+    fontSize: 12,
+    fontWeight: '700',
+    color: Colors.textMuted,
+    textTransform: 'uppercase',
+    letterSpacing: 0.6,
+  },
+  cardMissing: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.text,
   },
   cardImageWrap: {
     width: '100%',

@@ -1,11 +1,17 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
-import { Ionicons } from '@expo/vector-icons';
 
 import { AppButton } from '@/components/ui/AppButton';
 import { Colors } from '@/constants/theme';
-import { readJson, removeRaw, writeJson } from '@/lib/offline/fileStore';
+import { toDataUrl } from '@/lib/offline/patientAttachments';
+import { shrinkCardForWeb } from '@/lib/offline/visitingCards';
+import {
+  clearDraft,
+  loadDraft,
+  saveDraft,
+  type DoctorProfileDraft,
+} from '@/lib/offline/doctorProfileDrafts';
 import {
   lookupPmdc,
   useDoctorProfileMaster,
@@ -17,15 +23,20 @@ import {
 import { CompanySharesField } from './CompanySharesField';
 import {
   ChoiceChips,
+  DetailRow,
   Field,
+  FieldRegistryProvider,
   FieldRow,
+  FormStepper,
   HospitalField,
+  PracticeColumnHeads,
+  PracticeDualRows,
   ReadOnlyValue,
+  RecordBanner,
   SectionCard,
   SelectField,
   TextField,
 } from './formParts';
-import { ProfileDetails } from './ProfileDetails';
 import { VisitingCardPicker } from './VisitingCardPicker';
 import {
   ACCESS_TYPES,
@@ -41,6 +52,7 @@ import {
   INTERACTION_STYLES,
   OPD_TIMINGS,
   PHARMACY_OWNERSHIP,
+  PMDC_STEP_HINT,
   PRACTICE_LOCATIONS,
   PRACTICE_TYPES,
   RELIGIONS,
@@ -58,18 +70,14 @@ import {
   validateProfile,
 } from './profileRules';
 
-/** An in-progress form kept on the device until it is saved. */
-interface Draft {
-  form: DoctorProfileFields;
-  step: number;
-  whatsappManual: boolean;
-}
-
-const draftKey = (userId: string, pmdc: string) =>
-  `doctor-profile-draft-${userId}-${pmdc.trim().toUpperCase()}`;
-
 /** Digits only, for the numeric boxes. */
 const numeric = (value: string, max: number) => value.replace(/[^0-9]/g, '').slice(0, max);
+
+/** The PMDC register's half of the profile. */
+type Identity = Pick<
+  DoctorProfileFields,
+  'pmdcNumber' | 'pmdcStatus' | 'doctorName' | 'fatherName' | 'issueDate'
+>;
 
 interface ProfileFormProps {
   /** The assigned doctor being profiled — PMDC and identity come from it. */
@@ -83,18 +91,18 @@ interface ProfileFormProps {
 }
 
 /**
- * Capture one doctor's profile: the Searle app's six steps, rebuilt with this
- * app's components.
+ * Capture one doctor's profile: the Searle app's six steps and screen layout
+ * (stepper, doctor banner, Primary | Secondary columns, review card), built
+ * with this app's components and colours.
  *
  * Offline-first like everything a rep records here. The in-progress form is
  * saved on the device as a draft (so a killed app loses nothing), and Save
  * writes to the profile queue, which uploads the visiting card and the profile
- * on the next flush. Only the PMDC lookup needs signal, and only when the
- * assigned list didn't already carry the doctor's identity.
+ * on the next flush. Only the PMDC lookup needs signal.
  */
 export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileFormProps) {
   const pmdc = doctor.pmdcNumber.trim().toUpperCase();
-  const identityFromList: Partial<DoctorProfileFields> = {
+  const identityFromList: Identity = {
     pmdcNumber: pmdc,
     pmdcStatus: normalizePmdcStatus(doctor.pmdcStatus),
     doctorName: formatDoctorName(doctor.doctorName),
@@ -107,12 +115,25 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [pmdcMessage, setPmdcMessage] = useState<string | null>(null);
   const [verifying, setVerifying] = useState(false);
+  /**
+   * What happened to the last Save, shown above the buttons. Alert.alert alone
+   * is not enough: on web it does nothing at all, and on a phone a failed
+   * Save jumps to another step — either way it looked like "Save does nothing".
+   */
+  const [submitMessage, setSubmitMessage] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   // Until the rep changes WhatsApp by hand, it follows the cell number.
   const whatsappManual = useRef(false);
   const scrollRef = useRef<any>(null);
+  const contentRef = useRef<View>(null);
+  const fieldNodes = useRef(new Map<string, View | null>());
   // Set synchronously on the first tap of Save — see the patient screen.
   const submittingRef = useRef(false);
+  // The draft as last edited, and whether it still has to be written.
+  const latestDraft = useRef<DoctorProfileDraft | null>(null);
+  const draftDirty = useRef(false);
+  // Once saved, the draft must not be written back on the way out.
+  const savedRef = useRef(false);
 
   const masterQuery = useDoctorProfileMaster();
   const save = useSaveDoctorProfile(userId, mieId);
@@ -127,14 +148,33 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
     return names.length ? names : FALLBACK_CITIES;
   }, [masterQuery.data?.cities]);
 
+  /**
+   * The city's hospitals from the master list, plus any hospital the rep has
+   * added on this form for that city — so one added for the primary practice
+   * is offered for a secondary practice in the same city too (Searle keeps it
+   * in the session list the same way). The server adds it to the master when
+   * the profile lands (DOC-BR-012).
+   */
   const hospitalsFor = (cityName: string) => {
+    const lower = cityName.trim().toLowerCase();
+    if (!lower) return [];
     const city = (masterQuery.data?.cities ?? []).find(
-      (entry) => entry.name.toLowerCase() === cityName.toLowerCase(),
+      (entry) => entry.name.toLowerCase() === lower,
     );
-    if (!city) return [];
-    return (masterQuery.data?.hospitals ?? [])
-      .filter((hospital) => hospital.cityId === city.id)
-      .map((hospital) => hospital.name);
+    const names = city
+      ? (masterQuery.data?.hospitals ?? [])
+          .filter((hospital) => hospital.cityId === city.id)
+          .map((hospital) => hospital.name)
+      : [];
+    const added = (['primary', 'secondary'] as const)
+      .filter((side) => form[`${side}City`].trim().toLowerCase() === lower)
+      .map((side) => form[`${side}Hospital`].trim())
+      .filter(Boolean);
+    const merged = [...names];
+    for (const name of added) {
+      if (!merged.some((entry) => entry.toLowerCase() === name.toLowerCase())) merged.push(name);
+    }
+    return merged.sort((left, right) => left.localeCompare(right));
   };
 
   const companies = useMemo(
@@ -142,28 +182,91 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
     [masterQuery.data?.pharma],
   );
 
+  // ---- PMDC lookup ----------------------------------------------------------
+
+  /**
+   * Fetch the doctor's identity from the PMDC register (DOC-FR-010) and merge
+   * it into the CURRENT form, so nothing typed meanwhile is lost. `quiet`:
+   * don't complain when offline — used for the automatic lookup on open.
+   */
+  const verify = async (quiet = false): Promise<Identity | null> => {
+    setVerifying(true);
+    if (!quiet) setPmdcMessage(null);
+    try {
+      const record = await lookupPmdc(pmdc);
+      if (!record) {
+        setPmdcMessage('PMDC Number not found. Please verify and try again.');
+        return null;
+      }
+      const identity: Identity = {
+        pmdcNumber: pmdc,
+        pmdcStatus: normalizePmdcStatus(record.pmdcStatus) || String(record.pmdcStatus ?? ''),
+        doctorName: formatDoctorName(record.doctorName),
+        fatherName: String(record.fatherName ?? '').trim(),
+        issueDate: String(record.issueDate ?? '').trim(),
+      };
+      setForm((prev) => ({ ...prev, ...identity }));
+      setPmdcMessage(null);
+      clearError('pmdcNumber');
+      return identity;
+    } catch {
+      if (!quiet) {
+        setPmdcMessage(
+          "Couldn't reach the server to verify this PMDC number. Connect to the internet and try again.",
+        );
+      }
+      return null;
+    } finally {
+      setVerifying(false);
+    }
+  };
+
   // ---- draft --------------------------------------------------------------
 
-  // Restore an unsaved draft for this doctor, if the rep left one.
+  // Restore an unsaved draft for this doctor, if the rep left one; then, as
+  // Searle does on open, look the PMDC up when the list didn't carry the full
+  // identity (father's name / issue date).
   useEffect(() => {
     let active = true;
-    void readJson<Draft>(draftKey(userId, pmdc))
+    void loadDraft(userId, pmdc)
       .then((draft) => {
-        if (!active || !draft?.form) return;
+        if (!active || !draft) return;
         whatsappManual.current = Boolean(draft.whatsappManual);
         setForm({
           ...EMPTY_PROFILE,
           ...draft.form,
+          // A web blob: URL dies with the page that made it, so one in a
+          // restored draft is always dead — ask for the card again rather
+          // than fail at Save with "Failed to fetch".
+          visitingCardUrl: String(draft.form.visitingCardUrl ?? '').startsWith('blob:')
+            ? ''
+            : draft.form.visitingCardUrl,
           // The register's identity wins over whatever the draft held.
           ...Object.fromEntries(
             Object.entries(identityFromList).filter(([, value]) => Boolean(value)),
           ),
         });
         setStep(Math.max(0, Math.min(Number(draft.step) || 0, STEPS.length - 1)));
+        // Web: a full-size photo saved in an older draft fills the browser's
+        // storage — shrink it now (the debounced draft save then stores the
+        // smaller copy).
+        const card = String(draft.form.visitingCardUrl ?? '');
+        if (card.startsWith('data:')) {
+          void shrinkCardForWeb(card).then((smaller) => {
+            if (active && smaller !== card) {
+              setForm((prev) =>
+                prev.visitingCardUrl === card ? { ...prev, visitingCardUrl: smaller } : prev,
+              );
+            }
+          });
+        }
       })
       .catch(() => {})
       .finally(() => {
-        if (active) setHydrated(true);
+        if (!active) return;
+        setHydrated(true);
+        const { doctorName, fatherName, issueDate, pmdcStatus } = identityFromList;
+        if (!doctorName || !fatherName || !issueDate || !pmdcStatus) void verify(true);
       });
     return () => {
       active = false;
@@ -177,17 +280,39 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
     if (!hydrated) return;
     const hasProgress =
       step > 0 ||
-      Boolean(form.visitingCardUrl || form.religion || form.gender || form.age);
+      form.cellNo.replace(/\D/g, '').length >= 11 ||
+      Boolean(
+        form.religion ||
+          form.gender ||
+          form.age ||
+          form.practiceLocations ||
+          form.primaryHospital ||
+          form.primaryCity ||
+          form.visitingCardUrl,
+      );
     if (!hasProgress) return;
+    const draft: DoctorProfileDraft = { form, step, whatsappManual: whatsappManual.current };
+    latestDraft.current = draft;
+    draftDirty.current = true;
     const timer = setTimeout(() => {
-      void writeJson(draftKey(userId, pmdc), {
-        form,
-        step,
-        whatsappManual: whatsappManual.current,
-      } satisfies Draft);
+      draftDirty.current = false;
+      void saveDraft(userId, pmdc, draft);
     }, 450);
     return () => clearTimeout(timer);
   }, [form, step, hydrated, userId, pmdc]);
+
+  // Leaving the form (Change Doctor, the back arrow, another tab) must not drop
+  // the last edits still waiting on the debounce above — write them now.
+  useEffect(() => {
+    const dirty = draftDirty;
+    const latest = latestDraft;
+    const saved = savedRef;
+    return () => {
+      if (dirty.current && latest.current && !saved.current) {
+        void saveDraft(userId, pmdc, latest.current);
+      }
+    };
+  }, [userId, pmdc]);
 
   // Each step starts at the top.
   useEffect(() => {
@@ -210,7 +335,7 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
         return { ...prev, cellNo: value, whatsappNo: value };
       }
       if (key === 'whatsappNo') {
-        whatsappManual.current = value !== prev.cellNo;
+        whatsappManual.current = value.replace(/\D/g, '') !== prev.cellNo.replace(/\D/g, '');
       }
       return { ...prev, [key]: value };
     });
@@ -222,6 +347,17 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
   const pickCity = (side: 'primary' | 'secondary', city: string) => {
     setForm((prev) => ({ ...prev, [`${side}City`]: city, [`${side}Hospital`]: '' }));
     clearError(`${side}City`);
+    clearError(`${side}Hospital`);
+  };
+
+  /** The secondary speciality can't repeat the primary one. */
+  const pickPrimarySpeciality = (value: string) => {
+    setForm((prev) => ({
+      ...prev,
+      primarySpeciality: value,
+      ...(prev.secondarySpeciality === value ? { secondarySpeciality: '' } : {}),
+    }));
+    clearError('primarySpeciality');
   };
 
   const setPracticeLocations = (value: string) => {
@@ -235,56 +371,48 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
       return next;
     });
     clearError('practiceLocations');
-  };
-
-  // ---- PMDC lookup ----------------------------------------------------------
-
-  /**
-   * Fetch the doctor's identity from the PMDC register (DOC-FR-010). Needs a
-   * connection; the assigned list usually carries it already, in which case
-   * this is never called.
-   */
-  const verify = async (): Promise<DoctorProfileFields | null> => {
-    setVerifying(true);
-    setPmdcMessage(null);
-    try {
-      const record = await lookupPmdc(pmdc);
-      if (!record) {
-        setPmdcMessage('PMDC Number not found. Please verify and try again.');
-        return null;
-      }
-      const next = {
-        ...form,
-        pmdcNumber: pmdc,
-        pmdcStatus: normalizePmdcStatus(record.pmdcStatus) || record.pmdcStatus,
-        doctorName: formatDoctorName(record.doctorName),
-        fatherName: String(record.fatherName ?? '').trim(),
-        issueDate: String(record.issueDate ?? '').trim(),
-      };
-      setForm(next);
-      clearError('pmdcNumber');
-      return next;
-    } catch {
-      setPmdcMessage(
-        "Couldn't reach the server to verify this PMDC number. Connect to the internet and try again.",
-      );
-      return null;
-    } finally {
-      setVerifying(false);
-    }
+    if (!hasSecondaryPractice(value)) SECONDARY_FIELDS.forEach((key) => clearError(key));
   };
 
   // ---- navigation -----------------------------------------------------------
 
+  const registerField = (name: string, node: View | null) => {
+    if (node) fieldNodes.current.set(name, node);
+    else fieldNodes.current.delete(name);
+  };
+
+  /** Bring the first field with an error into view (Searle's scrollToFirstError). */
+  const scrollToFirstError = (fields: string[], stepErrors: Record<string, string>) => {
+    const first = fields.find((field) => stepErrors[field]);
+    const node = first ? fieldNodes.current.get(first) : null;
+    const content = contentRef.current;
+    requestAnimationFrame(() => {
+      if (!node || !content) {
+        scrollRef.current?.scrollTo?.({ y: 0, animated: true });
+        return;
+      }
+      node.measureLayout(
+        content as any,
+        (_x, y) => scrollRef.current?.scrollTo?.({ y: Math.max(0, y - 12), animated: true }),
+        () => scrollRef.current?.scrollTo?.({ y: 0, animated: true }),
+      );
+    });
+  };
+
+  /** The fields one step owns — the secondary ones only with a 2nd location. */
+  const fieldsFor = (stepIndex: number, snapshot: DoctorProfileFields) => {
+    const fields = STEP_FIELDS[STEPS[stepIndex].id];
+    if (STEPS[stepIndex].id === 'practice' && !hasSecondaryPractice(snapshot.practiceLocations)) {
+      return fields.filter((field) => !field.startsWith('secondary'));
+    }
+    return fields;
+  };
+
   /** Errors for one step only — never leak red text into later steps. */
   const errorsFor = (stepIndex: number, snapshot: DoctorProfileFields) => {
     const all = validateProfile(snapshot);
-    let fields = STEP_FIELDS[STEPS[stepIndex].id];
-    if (STEPS[stepIndex].id === 'practice' && !hasSecondaryPractice(snapshot.practiceLocations)) {
-      fields = fields.filter((field) => !field.startsWith('secondary'));
-    }
     const stepErrors: Record<string, string> = {};
-    for (const field of fields) {
+    for (const field of fieldsFor(stepIndex, snapshot)) {
       if (all[field]) stepErrors[field] = all[field];
     }
     return stepErrors;
@@ -293,14 +421,15 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
   const next = async () => {
     let snapshot = form;
     if (current.id === 'pmdc' && !form.doctorName) {
-      const verified = await verify();
-      if (!verified) return;
-      snapshot = verified;
+      const identity = await verify();
+      if (!identity) return;
+      // setForm is async — validate against the looked-up identity.
+      snapshot = { ...form, ...identity };
     }
     const stepErrors = errorsFor(step, snapshot);
     setErrors(stepErrors);
     if (Object.keys(stepErrors).length) {
-      scrollRef.current?.scrollTo?.({ y: 0, animated: true });
+      scrollToFirstError(fieldsFor(step, snapshot), stepErrors);
       return;
     }
     setStep((value) => Math.min(value + 1, STEPS.length - 1));
@@ -308,6 +437,7 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
 
   const back = () => {
     setErrors({});
+    setSubmitMessage(null);
     if (step === 0) {
       onExit();
       return;
@@ -315,212 +445,323 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
     setStep((value) => Math.max(value - 1, 0));
   };
 
+  /** Open a step showing only its errors, scrolled to the first one. */
+  const goToStepErrors = (index: number) => {
+    const stepErrors = errorsFor(index, form);
+    setStep(index);
+    setErrors(stepErrors);
+    setTimeout(() => scrollToFirstError(fieldsFor(index, form), stepErrors), 80);
+  };
+
+  /** Steps that still have problems, for the Review checklist. */
+  const stepsWithProblems = () =>
+    STEPS.map((entry, index) => ({ entry, index, count: Object.keys(errorsFor(index, form)).length }))
+      .filter((row) => row.count > 0);
+
   const submit = () => {
-    if (submittingRef.current) return;
+    submitProfile().catch((error: any) => {
+      // Never fail silently — say what went wrong.
+      submittingRef.current = false;
+      savedRef.current = false;
+      console.warn('[doctor-profiles] save failed', error);
+      setSubmitMessage(`Could not save: ${error?.message ?? 'unexpected error'}. Please try again.`);
+    });
+  };
+
+  const submitProfile = async () => {
+    // Saving, or already saved: a second tap must never queue the profile twice.
+    if (submittingRef.current || savedRef.current) return;
+    setSubmitMessage(null);
     const all = validateProfile(form);
     if (Object.keys(all).length) {
       // Send the rep to the first step with a problem, showing only its errors.
       const index = STEPS.findIndex((_, stepIndex) => Object.keys(errorsFor(stepIndex, form)).length);
-      if (index >= 0) {
-        setStep(index);
-        setErrors(errorsFor(index, form));
-      }
-      Alert.alert('Incomplete', 'Please fix the highlighted fields before saving.');
+      const message =
+        index >= 0
+          ? `Not saved — "${STEPS[index].title}" has fields to fix. They are marked in red.`
+          : 'Not saved — some fields still need attention.';
+      if (index >= 0) goToStepErrors(index);
+      setSubmitMessage(message);
+      Alert.alert('Incomplete', message);
       return;
     }
 
     submittingRef.current = true;
-    save.mutate(
-      {
-        ...form,
-        doctorName: formatDoctorName(form.doctorName),
-        otherCompanyPrescribers: filledShares(form.otherCompanyPrescribers).map(
-          (row: CompanyShare) => ({ company: row.company.trim(), percent: Number(row.percent) }),
-        ),
-      },
-      {
-        onSettled: () => {
-          submittingRef.current = false;
-        },
-        onSuccess: () => {
-          void removeRaw(draftKey(userId, pmdc)).catch(() => {});
-          onSaved();
-        },
-        // The write is local, so only device storage can fail it — and then
-        // the profile is NOT recorded anywhere. Worth saying so.
-        onError: (error: any) =>
-          Alert.alert(
-            'Could not save',
-            error?.message || 'Could not save this profile on the device. Please try again.',
-          ),
-      },
-    );
+    savedRef.current = true;
+    const trim = (value: string) => value.trim().replace(/\s+/g, ' ');
+
+    // Web: a card picked before this fix is a blob: URL, which the browser
+    // may already have thrown away. Read it now; if it's gone, say so plainly
+    // and send the rep back to capture it, instead of "Failed to fetch".
+    let visitingCardUrl = form.visitingCardUrl;
+    if (visitingCardUrl.startsWith('blob:')) {
+      try {
+        visitingCardUrl = await toDataUrl(visitingCardUrl);
+      } catch {
+        savedRef.current = false;
+        submittingRef.current = false;
+        const message =
+          'Not saved — the visiting card photo is no longer available. Please capture it again.';
+        setForm((prev) => ({ ...prev, visitingCardUrl: '' }));
+        setStep(0);
+        setErrors({ visitingCardUrl: 'Capture the visiting card again' });
+        setSubmitMessage(message);
+        Alert.alert('Capture the card again', message);
+        return;
+      }
+    }
+    // Web: keep the stored copy small (see shrinkCardForWeb). No-op on phones.
+    visitingCardUrl = await shrinkCardForWeb(visitingCardUrl);
+
+    const payload = {
+      ...form,
+      visitingCardUrl,
+      doctorName: formatDoctorName(form.doctorName),
+      // A typed hospital name may still carry a trailing space.
+      primaryHospital: trim(form.primaryHospital),
+      secondaryHospital: trim(form.secondaryHospital),
+      otherCompanyPrescribers: filledShares(form.otherCompanyPrescribers).map(
+        (row: CompanyShare) => ({ company: row.company.trim(), percent: Number(row.percent) }),
+      ),
+    };
+
+    try {
+      // mutateAsync, not mutate(…, { onSuccess }): the saved profile shows up
+      // on the device before this resolves, which can unmount this form — and
+      // React Query drops a mutate() callback whose component has gone, so the
+      // draft was never cleared and the screen never went back to the list.
+      try {
+        await save.mutateAsync(payload);
+      } catch (error: any) {
+        if (!/storage is full/i.test(String(error?.message ?? ''))) throw error;
+        // Web: the draft holds a second copy of this same profile, photo and
+        // all. Free that space and try once more — the form is still on
+        // screen, and the draft is written back below if this fails too.
+        await clearDraft(userId, pmdc).catch(() => {});
+        try {
+          await save.mutateAsync(payload);
+        } catch (retryError) {
+          await saveDraft(userId, pmdc, {
+            form,
+            step,
+            whatsappManual: whatsappManual.current,
+          }).catch(() => {});
+          throw retryError;
+        }
+      }
+    } catch (error: any) {
+      savedRef.current = false;
+      submittingRef.current = false;
+      // The write is local, so only device storage can fail it — and then
+      // the profile is NOT recorded anywhere. Worth saying so.
+      const message = `Could not save: ${
+        error?.message || 'the profile could not be stored on this device'
+      }. Please try again.`;
+      console.warn('[doctor-profiles] save failed', error);
+      setSubmitMessage(message);
+      Alert.alert('Could not save', message);
+      return;
+    }
+    // savedRef stays true: this form is done, and Save is ignored from here on.
+    await clearDraft(userId, pmdc).catch(() => {});
+    submittingRef.current = false;
+    onSaved();
   };
 
-  // ---- steps ----------------------------------------------------------------
+  // ---- practice fields ------------------------------------------------------
 
   const err = (key: string) => errors[key];
 
-  const practiceSection = (side: 'primary' | 'secondary') => {
+  /**
+   * One practice location's ten fields, in Searle's order, each keyed by its
+   * name — so the two locations can be laid out row by row side by side.
+   * `dual` sizes them for a half-width column and names the side in each
+   * dropdown's title (Searle's contextLabel).
+   */
+  const practiceFields = (side: 'primary' | 'secondary', dual: boolean) => {
     const key = (name: string) => `${side}${name}` as keyof DoctorProfileFields;
     const value = (name: string) => String(form[key(name)] ?? '');
     const city = value('City');
+    const sideLabel = side === 'primary' ? 'Primary' : 'Secondary';
+    const sheetTitle = (label: string) => (dual ? `${sideLabel} · ${label}` : `Select ${label}`);
     const specialities =
       side === 'secondary'
         ? DOCTOR_SPECIALITIES.filter((name) => name !== form.primarySpeciality)
         : DOCTOR_SPECIALITIES;
 
-    return (
-      <SectionCard
-        title={showSecondary ? (side === 'primary' ? 'Primary Practice' : 'Secondary Practice') : 'Practice Location'}
-        icon="business-outline"
+    return [
+      <Field key="Speciality" name={key('Speciality')} label="Speciality" required error={err(key('Speciality'))}>
+        <SelectField
+          options={specialities}
+          value={value('Speciality')}
+          onChange={(next) =>
+            side === 'primary' ? pickPrimarySpeciality(next) : update(key('Speciality'), next)
+          }
+          placeholder="Select an option"
+          title={sheetTitle('Speciality')}
+          invalid={Boolean(err(key('Speciality')))}
+          searchable
+        />
+      </Field>,
+      <Field key="City" name={key('City')} label="City" required error={err(key('City'))}>
+        <SelectField
+          options={cities}
+          value={city}
+          onChange={(next) => pickCity(side, next)}
+          placeholder="Select an option"
+          title={sheetTitle('City')}
+          invalid={Boolean(err(key('City')))}
+          searchable
+        />
+      </Field>,
+      <Field
+        key="Hospital"
+        name={key('Hospital')}
+        label="Hospital"
+        required
+        help={FIELD_HELP.hospital}
+        error={err(key('Hospital'))}
       >
-        <Field label="Speciality" required error={err(key('Speciality'))}>
-          <SelectField
-            options={specialities}
-            value={value('Speciality')}
-            onChange={(next) => update(key('Speciality'), next)}
-            placeholder="Select speciality"
-            title="Select Speciality"
-            invalid={Boolean(err(key('Speciality')))}
-          />
-        </Field>
-        <Field label="City" required error={err(key('City'))}>
-          <SelectField
-            options={cities}
-            value={city}
-            onChange={(next) => pickCity(side, next)}
-            placeholder="Select city"
-            title="Select City"
-            invalid={Boolean(err(key('City')))}
-          />
-        </Field>
-        <Field label="Hospital" required help={FIELD_HELP.hospital} error={err(key('Hospital'))}>
-          <HospitalField
-            // Remounted per city, so "type a new one" never carries across.
-            key={`${side}-${city}`}
-            hospitals={hospitalsFor(city)}
-            value={value('Hospital')}
-            onChange={(next) => update(key('Hospital'), next)}
-            city={city}
-            invalid={Boolean(err(key('Hospital')))}
-          />
-        </Field>
-        <Field label="Session" required help={FIELD_HELP.session} error={err(key('Session'))}>
-          <ChoiceChips
-            options={SESSION_TIMES}
-            value={value('Session')}
-            onChange={(next) => update(key('Session'), next)}
-            invalid={Boolean(err(key('Session')))}
-          />
-        </Field>
-        <FieldRow>
-          <Field label="Fee / Patient" required inRow error={err(key('Fee'))}>
-            <TextField
-              value={value('Fee')}
-              onChangeText={(next) => update(key('Fee'), numeric(next, 7))}
-              placeholder="Rs"
-              keyboardType="number-pad"
-              invalid={Boolean(err(key('Fee')))}
-            />
-          </Field>
-          <Field label="Avg Time (min)" required inRow error={err(key('AvgTime'))}>
-            <TextField
-              value={value('AvgTime')}
-              onChangeText={(next) => update(key('AvgTime'), numeric(next, 3))}
-              placeholder="Minutes"
-              keyboardType="number-pad"
-              invalid={Boolean(err(key('AvgTime')))}
-            />
-          </Field>
-        </FieldRow>
-        <Field label="Patients / Day" required error={err(key('PatientsPerDay'))}>
-          <TextField
-            value={value('PatientsPerDay')}
-            onChangeText={(next) => update(key('PatientsPerDay'), numeric(next, 4))}
-            placeholder="Number of patients"
-            keyboardType="number-pad"
-            invalid={Boolean(err(key('PatientsPerDay')))}
-          />
-        </Field>
-        <Field label="OPD Timing" required error={err(key('OpdTiming'))}>
-          <SelectField
-            options={OPD_TIMINGS}
-            value={value('OpdTiming')}
-            onChange={(next) => update(key('OpdTiming'), next)}
-            placeholder="Select OPD timing"
-            title="Select OPD Timing"
-            invalid={Boolean(err(key('OpdTiming')))}
-          />
-        </Field>
-        <Field
-          label="Best Visiting Time"
-          required
-          help={FIELD_HELP.bestVisitingTime}
-          error={err(key('BestVisitingTime'))}
-        >
-          <SelectField
-            options={BEST_VISITING_TIMES}
-            value={value('BestVisitingTime')}
-            onChange={(next) => update(key('BestVisitingTime'), next)}
-            placeholder="Select time"
-            title="Select Best Visiting Time"
-            invalid={Boolean(err(key('BestVisitingTime')))}
-            searchable
-          />
-        </Field>
-        <Field
-          label="Appointment System"
-          required
-          help={FIELD_HELP.appointmentSystem}
-          error={err(key('AppointmentSystem'))}
-        >
-          <ChoiceChips
-            options={APPOINTMENT_SYSTEMS}
-            value={value('AppointmentSystem')}
-            onChange={(next) => update(key('AppointmentSystem'), next)}
-            invalid={Boolean(err(key('AppointmentSystem')))}
-          />
-        </Field>
-      </SectionCard>
-    );
+        <HospitalField
+          hospitals={hospitalsFor(city)}
+          value={value('Hospital')}
+          onChange={(next) => update(key('Hospital'), next)}
+          city={city}
+          title={dual ? `${sideLabel} · Hospital` : undefined}
+          invalid={Boolean(err(key('Hospital')))}
+        />
+      </Field>,
+      <Field key="Session" name={key('Session')} label="Session" required error={err(key('Session'))}>
+        <ChoiceChips
+          options={SESSION_TIMES}
+          value={value('Session')}
+          onChange={(next) => update(key('Session'), next)}
+          invalid={Boolean(err(key('Session')))}
+          compact={dual}
+        />
+      </Field>,
+      <Field key="Fee" name={key('Fee')} label="Fee / Patient" required error={err(key('Fee'))}>
+        <TextField
+          value={value('Fee')}
+          onChangeText={(next) => update(key('Fee'), numeric(next, 7))}
+          placeholder="Numbers only"
+          keyboardType="number-pad"
+          invalid={Boolean(err(key('Fee')))}
+        />
+      </Field>,
+      <Field key="AvgTime" name={key('AvgTime')} label="Avg Time / Patient" required error={err(key('AvgTime'))}>
+        <TextField
+          value={value('AvgTime')}
+          onChangeText={(next) => update(key('AvgTime'), numeric(next, 3))}
+          placeholder="Minutes (numbers only)"
+          keyboardType="number-pad"
+          invalid={Boolean(err(key('AvgTime')))}
+        />
+      </Field>,
+      <Field
+        key="PatientsPerDay"
+        name={key('PatientsPerDay')}
+        label="No# Patient/Day"
+        required
+        error={err(key('PatientsPerDay'))}
+      >
+        <TextField
+          value={value('PatientsPerDay')}
+          onChangeText={(next) => update(key('PatientsPerDay'), numeric(next, 4))}
+          keyboardType="number-pad"
+          invalid={Boolean(err(key('PatientsPerDay')))}
+        />
+      </Field>,
+      <Field key="OpdTiming" name={key('OpdTiming')} label="OPD Timing" required error={err(key('OpdTiming'))}>
+        <SelectField
+          options={OPD_TIMINGS}
+          value={value('OpdTiming')}
+          onChange={(next) => update(key('OpdTiming'), next)}
+          placeholder="Select an option"
+          title={sheetTitle('OPD Timing')}
+          invalid={Boolean(err(key('OpdTiming')))}
+          searchable={false}
+        />
+      </Field>,
+      <Field
+        key="BestVisitingTime"
+        name={key('BestVisitingTime')}
+        label="Best Visiting Time"
+        required
+        error={err(key('BestVisitingTime'))}
+      >
+        <SelectField
+          options={BEST_VISITING_TIMES}
+          value={value('BestVisitingTime')}
+          onChange={(next) => update(key('BestVisitingTime'), next)}
+          placeholder="Select an option"
+          title={sheetTitle('Best Visiting Time')}
+          invalid={Boolean(err(key('BestVisitingTime')))}
+          searchable
+        />
+      </Field>,
+      <Field
+        key="AppointmentSystem"
+        name={key('AppointmentSystem')}
+        label="Appointment System"
+        required
+        error={err(key('AppointmentSystem'))}
+      >
+        <ChoiceChips
+          options={APPOINTMENT_SYSTEMS}
+          value={value('AppointmentSystem')}
+          onChange={(next) => update(key('AppointmentSystem'), next)}
+          invalid={Boolean(err(key('AppointmentSystem')))}
+          compact={dual}
+        />
+      </Field>,
+    ];
   };
+
+  /** Primary | Secondary, paired row by row so each field sits level with its partner. */
+  const dualPracticeRows = () => {
+    const primary = practiceFields('primary', true);
+    const secondary = practiceFields('secondary', true);
+    return primary.map((field, index) => ({
+      key: String(field.key),
+      primary: field,
+      secondary: secondary[index],
+    }));
+  };
+
+  // ---- steps ----------------------------------------------------------------
 
   const renderStep = () => {
     switch (current.id) {
       case 'pmdc':
         return (
           <SectionCard>
-            <Field label="PMDC Number" required error={err('pmdcNumber')}>
+            <Field name="pmdcNumber" label="PMDC Number" required error={err('pmdcNumber')}>
               <ReadOnlyValue value={pmdc} />
             </Field>
             {pmdcMessage ? <Text style={styles.errorText}>{pmdcMessage}</Text> : null}
-            {!form.doctorName ? (
-              <AppButton
-                label={verifying ? 'Verifying…' : 'Verify Registration'}
-                variant="outline"
-                onPress={verifying ? undefined : () => void verify()}
-                icon={<Ionicons name="shield-checkmark-outline" size={18} color={Colors.primary} />}
-              />
-            ) : null}
+            {verifying ? <Text style={styles.hint}>Verifying registration…</Text> : null}
             <FieldRow>
               <Field label="PMDC Status" inRow>
                 <ReadOnlyValue value={form.pmdcStatus} />
               </Field>
-              <Field label="Issue Date" inRow>
+              <Field label="Doctor Name" inRow>
+                <ReadOnlyValue value={formatDoctorName(form.doctorName)} />
+              </Field>
+            </FieldRow>
+            <FieldRow>
+              <Field label="Father's Name" inRow>
+                <ReadOnlyValue value={form.fatherName} />
+              </Field>
+              <Field label="PMDC Issue Date" inRow>
                 <ReadOnlyValue value={form.issueDate} />
               </Field>
             </FieldRow>
-            <Field label="Doctor Name">
-              <ReadOnlyValue value={formatDoctorName(form.doctorName)} />
-            </Field>
-            <Field label="Father's Name">
-              <ReadOnlyValue value={form.fatherName} />
-            </Field>
             <Field
+              name="visitingCardUrl"
               label="Visiting Card"
               required
-              help="Photograph the doctor's visiting card — required to continue."
+              help="Capture the visiting card with the camera — required to continue."
               error={err('visitingCardUrl')}
             >
               <VisitingCardPicker
@@ -535,7 +776,7 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
       case 'personal':
         return (
           <SectionCard>
-            <Field label="Religion" required error={err('religion')}>
+            <Field name="religion" label="Religion" required error={err('religion')}>
               <ChoiceChips
                 options={RELIGIONS}
                 value={form.religion}
@@ -543,51 +784,58 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
                 invalid={Boolean(err('religion'))}
               />
             </Field>
-            <FieldRow>
-              <Field label="Age" required inRow error={err('age')}>
+            <FieldRow forceRow>
+              <Field name="age" label="Age" required inRow error={err('age')}>
                 <TextField
                   value={form.age}
                   onChangeText={(next) => update('age', numeric(next, 3))}
                   placeholder="Years"
                   keyboardType="number-pad"
+                  maxLength={3}
                   invalid={Boolean(err('age'))}
                 />
               </Field>
-              <Field label="Gender" required inRow error={err('gender')}>
+              <Field name="gender" label="Gender" required inRow error={err('gender')}>
                 <ChoiceChips
                   options={GENDERS}
                   value={form.gender}
                   onChange={(next) => update('gender', next)}
                   invalid={Boolean(err('gender'))}
+                  compact
                 />
               </Field>
             </FieldRow>
-            <Field label="Cell No" required error={err('cellNo')}>
-              <TextField
-                value={form.cellNo}
-                onChangeText={(next) => update('cellNo', formatPkMobile(next))}
-                placeholder="03XXXXXXXXX"
-                keyboardType="phone-pad"
-                maxLength={11}
-                invalid={Boolean(err('cellNo'))}
-              />
-            </Field>
+            <FieldRow>
+              <Field name="cellNo" label="Cell No" required inRow error={err('cellNo')}>
+                <TextField
+                  value={form.cellNo}
+                  onChangeText={(next) => update('cellNo', formatPkMobile(next))}
+                  placeholder="03XXXXXXXXX"
+                  keyboardType="phone-pad"
+                  maxLength={11}
+                  invalid={Boolean(err('cellNo'))}
+                />
+              </Field>
+              <Field
+                name="whatsappNo"
+                label="WhatsApp No"
+                required
+                inRow
+                note="Change if WhatsApp is different"
+                error={err('whatsappNo')}
+              >
+                <TextField
+                  value={form.whatsappNo}
+                  onChangeText={(next) => update('whatsappNo', formatPkMobile(next))}
+                  placeholder="03XXXXXXXXX"
+                  keyboardType="phone-pad"
+                  maxLength={11}
+                  invalid={Boolean(err('whatsappNo'))}
+                />
+              </Field>
+            </FieldRow>
             <Field
-              label="WhatsApp No"
-              required
-              help="Copied from the cell number — change it if WhatsApp is different."
-              error={err('whatsappNo')}
-            >
-              <TextField
-                value={form.whatsappNo}
-                onChangeText={(next) => update('whatsappNo', formatPkMobile(next))}
-                placeholder="03XXXXXXXXX"
-                keyboardType="phone-pad"
-                maxLength={11}
-                invalid={Boolean(err('whatsappNo'))}
-              />
-            </Field>
-            <Field
+              name="digitalComfortLevel"
               label="Digital Comfort Level"
               required
               help={FIELD_HELP.digitalComfortLevel}
@@ -607,19 +855,24 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
         return (
           <SectionCard>
             <Field
+              name="practiceLocations"
               label="No. of Practice Locations"
               required
               help={FIELD_HELP.practiceLocations}
               error={err('practiceLocations')}
             >
-              <ChoiceChips
+              <SelectField
                 options={PRACTICE_LOCATIONS}
                 value={form.practiceLocations}
                 onChange={setPracticeLocations}
+                placeholder="Select"
+                title="Select No. of Practice Locations"
                 invalid={Boolean(err('practiceLocations'))}
+                searchable={false}
               />
             </Field>
             <Field
+              name="practiceType"
               label="Practice Type"
               required
               help={FIELD_HELP.practiceType}
@@ -636,60 +889,92 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
         );
 
       case 'practice':
-        return (
-          <View style={styles.stack}>
-            {practiceSection('primary')}
-            {showSecondary ? practiceSection('secondary') : null}
-          </View>
+        return showSecondary ? (
+          <SectionCard dense>
+            <PracticeDualRows rows={dualPracticeRows()} />
+          </SectionCard>
+        ) : (
+          <SectionCard title="Practice Location" icon="business-outline">
+            {practiceFields('primary', false)}
+          </SectionCard>
         );
 
       case 'commercial':
         return (
           <SectionCard>
-            <Field
-              label="Innovation & Medicine Adoption"
-              required
-              help={FIELD_HELP.innovationAdoption}
-              error={err('innovationAdoption')}
-            >
-              <ChoiceChips
-                options={ADOPTION_LEVELS}
-                value={form.innovationAdoption}
-                onChange={(next) => update('innovationAdoption', next)}
-                invalid={Boolean(err('innovationAdoption'))}
-              />
-            </Field>
-            <Field label="Access Type" required help={FIELD_HELP.accessType} error={err('accessType')}>
-              <ChoiceChips
-                options={ACCESS_TYPES}
-                value={form.accessType}
-                onChange={(next) => update('accessType', next)}
-                invalid={Boolean(err('accessType'))}
-              />
-            </Field>
-            <Field
-              label="Preferred Interaction Style"
-              required
-              help={FIELD_HELP.preferredInteractionStyle}
-              error={err('preferredInteractionStyle')}
-            >
-              <ChoiceChips
-                options={INTERACTION_STYLES}
-                value={form.preferredInteractionStyle}
-                onChange={(next) => update('preferredInteractionStyle', next)}
-                invalid={Boolean(err('preferredInteractionStyle'))}
-              />
-            </Field>
-            <Field label="TSCL Prescriber" required help={FIELD_HELP.rxStatus} error={err('rxStatus')}>
-              <ChoiceChips
-                options={RX_STATUSES}
-                value={form.rxStatus}
-                onChange={(next) => update('rxStatus', next)}
-                invalid={Boolean(err('rxStatus'))}
-              />
-            </Field>
             <FieldRow>
-              <Field label="Rx Patterns" required inRow help={FIELD_HELP.rxPatterns} error={err('rxPatterns')}>
+              <Field
+                name="innovationAdoption"
+                label="Innovation & Medicine Adoption"
+                required
+                inRow
+                help={FIELD_HELP.innovationAdoption}
+                error={err('innovationAdoption')}
+              >
+                <ChoiceChips
+                  options={ADOPTION_LEVELS}
+                  value={form.innovationAdoption}
+                  onChange={(next) => update('innovationAdoption', next)}
+                  invalid={Boolean(err('innovationAdoption'))}
+                />
+              </Field>
+              <Field
+                name="accessType"
+                label="Access Type"
+                required
+                inRow
+                help={FIELD_HELP.accessType}
+                error={err('accessType')}
+              >
+                <ChoiceChips
+                  options={ACCESS_TYPES}
+                  value={form.accessType}
+                  onChange={(next) => update('accessType', next)}
+                  invalid={Boolean(err('accessType'))}
+                />
+              </Field>
+            </FieldRow>
+            <FieldRow>
+              <Field
+                name="preferredInteractionStyle"
+                label="Preferred Interaction Style"
+                required
+                inRow
+                help={FIELD_HELP.preferredInteractionStyle}
+                error={err('preferredInteractionStyle')}
+              >
+                <ChoiceChips
+                  options={INTERACTION_STYLES}
+                  value={form.preferredInteractionStyle}
+                  onChange={(next) => update('preferredInteractionStyle', next)}
+                  invalid={Boolean(err('preferredInteractionStyle'))}
+                />
+              </Field>
+              <Field
+                name="rxStatus"
+                label="TSCL Prescriber"
+                required
+                inRow
+                help={FIELD_HELP.rxStatus}
+                error={err('rxStatus')}
+              >
+                <ChoiceChips
+                  options={RX_STATUSES}
+                  value={form.rxStatus}
+                  onChange={(next) => update('rxStatus', next)}
+                  invalid={Boolean(err('rxStatus'))}
+                />
+              </Field>
+            </FieldRow>
+            <FieldRow>
+              <Field
+                name="rxPatterns"
+                label="Rx Patterns"
+                required
+                inRow
+                help={FIELD_HELP.rxPatterns}
+                error={err('rxPatterns')}
+              >
                 <ChoiceChips
                   options={RX_PATTERNS}
                   value={form.rxPatterns}
@@ -698,6 +983,7 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
                 />
               </Field>
               <Field
+                name="pharmacyOwnership"
                 label="Pharmacy Ownership"
                 required
                 inRow
@@ -712,7 +998,12 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
                 />
               </Field>
             </FieldRow>
-            <Field label="Other Company Prescriber" required error={err('otherCompanyPrescribers')}>
+            <Field
+              name="otherCompanyPrescribers"
+              label="Other Company Prescriber"
+              required
+              error={err('otherCompanyPrescribers')}
+            >
               <CompanySharesField
                 value={form.otherCompanyPrescribers}
                 onChange={(next) => {
@@ -733,8 +1024,68 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
           </SectionCard>
         );
 
-      case 'review':
-        return <ProfileDetails profile={{ ...form, id: 'review' }} />;
+      case 'review': {
+        // What would stop Save, listed up front, each with a way to fix it.
+        const problems = stepsWithProblems();
+        return (
+          <>
+          {problems.length ? (
+            <View style={styles.problems}>
+              <Text style={styles.problemsTitle}>
+                Not ready to save — fix these first:
+              </Text>
+              {problems.map((row) => (
+                <View key={row.entry.id} style={styles.problemRow}>
+                  <Text style={styles.problemText}>
+                    Step {row.index + 1} · {row.entry.title} — {row.count}{' '}
+                    {row.count === 1 ? 'field' : 'fields'}
+                  </Text>
+                  <AppButton
+                    label="Fix"
+                    variant="outline"
+                    onPress={() => goToStepErrors(row.index)}
+                    style={styles.problemButton}
+                  />
+                </View>
+              ))}
+            </View>
+          ) : null}
+          {/* Searle's review card: the key facts, one line each. */}
+          <SectionCard>
+            <View>
+              <DetailRow label="Name" value={formatDoctorName(form.doctorName)} />
+              <DetailRow
+                label="PMDC"
+                value={form.pmdcStatus ? `${form.pmdcNumber} (${form.pmdcStatus})` : form.pmdcNumber}
+              />
+              <DetailRow label="Visiting Card" value={form.visitingCardUrl ? 'Captured' : 'Missing'} />
+              <DetailRow label="Gender" value={form.gender} />
+              <DetailRow label="Age" value={form.age} />
+              <DetailRow label="Cell No" value={form.cellNo} />
+              <DetailRow label="Speciality" value={form.primarySpeciality} />
+              <DetailRow label="Practice Type" value={form.practiceType} />
+              <DetailRow label="Hospital" value={form.primaryHospital} />
+              <DetailRow label="City" value={form.primaryCity} />
+              <DetailRow label="TSCL Prescriber" value={form.rxStatus} />
+              <DetailRow
+                label="Other Company Prescriber"
+                value={filledShares(form.otherCompanyPrescribers)
+                  .map((row) => `${row.company} – ${row.percent}%`)
+                  .join('; ')}
+              />
+              <DetailRow label="Best Visiting Time" value={form.primaryBestVisitingTime} />
+              <DetailRow label="Appointment" value={form.primaryAppointmentSystem} />
+              {showSecondary ? (
+                <DetailRow
+                  label="Secondary"
+                  value={[form.secondaryHospital, form.secondaryCity].filter(Boolean).join(', ')}
+                />
+              ) : null}
+            </View>
+          </SectionCard>
+          </>
+        );
+      }
     }
   };
 
@@ -748,34 +1099,23 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
 
   return (
     <View style={styles.fill}>
-      {/* Raised bar over the step, like the list screens' sticky header. */}
+      {/* Searle's sticky header: stepper, then the doctor banner (or, on the
+          PMDC step, the step hint), then the column heads for two practices. */}
       <View style={styles.stickyHeader}>
-        <View style={styles.stepTitleRow}>
-          <Text style={styles.stepCount}>
-            Step {step + 1} of {STEPS.length}
+        <FormStepper titles={STEPS.map((entry) => entry.title)} current={step} />
+        {current.id !== 'pmdc' && form.doctorName ? (
+          <RecordBanner
+            name={formatDoctorName(form.doctorName)}
+            codeLabel="PMDC"
+            code={form.pmdcNumber}
+            description={current.description}
+          />
+        ) : (
+          <Text style={styles.stepDescription}>
+            {current.id === 'pmdc' ? PMDC_STEP_HINT : current.description}
           </Text>
-          <Text style={styles.stepTitle} numberOfLines={1}>
-            {current.title}
-          </Text>
-        </View>
-        <View style={styles.segments}>
-          {STEPS.map((entry, index) => (
-            <View
-              key={entry.id}
-              style={[styles.segment, index <= step && styles.segmentDone]}
-            />
-          ))}
-        </View>
-        {form.doctorName ? (
-          <View style={styles.doctorBanner}>
-            <Ionicons name="person-circle-outline" size={18} color={Colors.primary} />
-            <Text style={styles.doctorBannerText} numberOfLines={1}>
-              {formatDoctorName(form.doctorName)}
-            </Text>
-            <Text style={styles.doctorBannerCode}>PMDC {pmdc}</Text>
-          </View>
-        ) : null}
-        <Text style={styles.stepDescription}>{current.description}</Text>
+        )}
+        {current.id === 'practice' && showSecondary ? <PracticeColumnHeads /> : null}
       </View>
 
       <KeyboardAwareScrollView
@@ -786,8 +1126,18 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
         bottomOffset={24}
         keyboardShouldPersistTaps="handled"
       >
-        {renderStep()}
+        <FieldRegistryProvider value={registerField}>
+          <View ref={contentRef} collapsable={false} style={styles.stack}>
+            {renderStep()}
+          </View>
+        </FieldRegistryProvider>
       </KeyboardAwareScrollView>
+
+      {submitMessage ? (
+        <View style={styles.submitMessage}>
+          <Text style={styles.submitMessageText}>{submitMessage}</Text>
+        </View>
+      ) : null}
 
       <View style={styles.footer}>
         <AppButton
@@ -798,7 +1148,7 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
         />
         {current.id === 'review' ? (
           <AppButton
-            label={save.isPending ? 'Saving…' : 'Save Profile'}
+            label={save.isPending ? 'Saving…' : 'Save Doctor'}
             onPress={save.isPending ? undefined : submit}
             style={[styles.footerButton, save.isPending && styles.footerButtonDisabled]}
           />
@@ -823,6 +1173,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  // Raised bar over the step, like the list screens' sticky header.
   stickyHeader: {
     gap: 10,
     marginHorizontal: 16,
@@ -839,57 +1190,9 @@ const styles = StyleSheet.create({
     elevation: 2,
     zIndex: 5,
   },
-  stepTitleRow: {
-    flexDirection: 'row',
-    alignItems: 'baseline',
-    gap: 8,
-  },
-  stepCount: {
-    fontSize: 12,
-    fontWeight: '800',
-    color: Colors.primary,
-  },
-  stepTitle: {
-    flex: 1,
-    fontSize: 16,
-    fontWeight: '800',
-    color: Colors.text,
-  },
-  segments: {
-    flexDirection: 'row',
-    gap: 4,
-  },
-  segment: {
-    flex: 1,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: Colors.border,
-  },
-  segmentDone: {
-    backgroundColor: Colors.primary,
-  },
-  doctorBanner: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-    borderRadius: 8,
-    backgroundColor: Colors.background,
-    paddingHorizontal: 10,
-    paddingVertical: 6,
-  },
-  doctorBannerText: {
-    flex: 1,
-    fontSize: 13,
-    fontWeight: '700',
-    color: Colors.text,
-  },
-  doctorBannerCode: {
-    fontSize: 12,
-    fontWeight: '700',
-    color: Colors.primary,
-  },
   stepDescription: {
-    fontSize: 12,
+    fontSize: 13,
+    lineHeight: 18,
     color: Colors.textMuted,
   },
   scroll: {
@@ -899,7 +1202,6 @@ const styles = StyleSheet.create({
     padding: 16,
     paddingTop: 14,
     paddingBottom: 16,
-    gap: 14,
   },
   stack: {
     gap: 14,
@@ -912,6 +1214,46 @@ const styles = StyleSheet.create({
   hint: {
     fontSize: 12,
     color: Colors.textMuted,
+  },
+  problems: {
+    gap: 8,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.danger,
+    backgroundColor: Colors.dangerBg,
+    padding: 12,
+  },
+  problemsTitle: {
+    fontSize: 13,
+    fontWeight: '800',
+    color: Colors.danger,
+  },
+  problemRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  problemText: {
+    flex: 1,
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.text,
+  },
+  problemButton: {
+    paddingVertical: 6,
+    paddingHorizontal: 12,
+  },
+  submitMessage: {
+    borderTopWidth: 1,
+    borderTopColor: Colors.danger,
+    backgroundColor: Colors.dangerBg,
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  submitMessageText: {
+    fontSize: 13,
+    fontWeight: '700',
+    color: Colors.danger,
   },
   // The patient form's footer.
   footer: {

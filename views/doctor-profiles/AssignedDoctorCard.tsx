@@ -17,14 +17,18 @@ function Divider() {
  *
  * The doctor list's card parts — 46px navy avatar, 17px name, 13px meta with
  * 14px icons, the shared Tag — with the profile state on the right: Pending
- * (amber) until profiled, Captured (green) after, and "Waiting to sync" while
- * the profile is still only on this device.
+ * (amber) until profiled, Draft while a half-filled form is on the device,
+ * Captured (green) after, and "Waiting to sync" while the profile is still
+ * only on this device — Searle's PENDING / DRAFT / FILLED.
  */
 export function AssignedDoctorCard({
   doctor,
+  hasDraft = false,
   onPress,
 }: {
   doctor: AssignedDoctor;
+  /** An unsaved form for this doctor is on the device. */
+  hasDraft?: boolean;
   onPress: (doctor: AssignedDoctor) => void;
 }) {
   const name = formatDoctorName(doctor.doctorName) || doctor.pmdcNumber;
@@ -73,6 +77,8 @@ export function AssignedDoctorCard({
             icon={doctor.isPending ? 'cloud-upload-outline' : 'checkmark-circle-outline'}
             tone={doctor.isPending ? 'neutral' : 'success'}
           />
+        ) : hasDraft ? (
+          <Tag label="Draft" icon="document-text-outline" tone="primary" />
         ) : (
           <Tag label="Pending" icon="create-outline" tone="warning" />
         )}

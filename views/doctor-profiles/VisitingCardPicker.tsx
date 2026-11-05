@@ -4,6 +4,8 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 
 import { Colors } from '@/constants/theme';
+import { toDataUrl } from '@/lib/offline/patientAttachments';
+import { shrinkCardForWeb } from '@/lib/offline/visitingCards';
 import { ImageViewerModal } from '@/views/patients/ImageViewerModal';
 
 /**
@@ -39,7 +41,12 @@ export function VisitingCardPicker({
           mediaTypes: ['images'],
           quality: IMAGE_QUALITY,
         });
-        if (!result.canceled && result.assets[0]?.uri) onChange(result.assets[0].uri);
+        const uri = !result.canceled ? result.assets[0]?.uri : undefined;
+        // The browser hands back a blob: URL, which dies on reload. The form
+        // and its draft outlive that, and Save then failed with "Failed to
+        // fetch" — so keep the image itself (a data URL) from the start,
+        // shrunk so it fits the browser's small storage.
+        if (uri) onChange(await shrinkCardForWeb(await toDataUrl(uri)));
         return;
       }
 

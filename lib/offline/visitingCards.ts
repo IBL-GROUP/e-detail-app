@@ -1,5 +1,57 @@
+import { Platform } from 'react-native';
+
 import axios from '@/config/axios';
 import { isLocalAttachment, toDataUrl } from './patientAttachments';
+
+/** Longest side of a visiting card photo kept on web — plenty to read a card. */
+const WEB_MAX_SIDE = 1280;
+const WEB_JPEG_QUALITY = 0.7;
+/** Data URLs smaller than this are left alone. */
+const WEB_SHRINK_ABOVE = 400_000;
+
+/**
+ * Web only: shrink a visiting-card photo (as a data URL) to at most 1280px on
+ * its longest side, as JPEG.
+ *
+ * On web the photo has to live in localStorage — in the draft and in the
+ * profile queue — and the browser allows only about 5 MB per site. The web
+ * image picker ignores `quality`, so a camera photo arrived at full size and
+ * one card could fill the whole store: Save then failed with "this browser's
+ * storage is full". Shrunk, a card is typically 150–300 KB.
+ *
+ * Returns the input unchanged on native, when it's already small, or if the
+ * browser can't decode it (better a big photo than none).
+ */
+export async function shrinkCardForWeb(dataUrl: string): Promise<string> {
+  if (Platform.OS !== 'web' || !dataUrl.startsWith('data:') || dataUrl.length < WEB_SHRINK_ABOVE) {
+    return dataUrl;
+  }
+  try {
+    const image = await new Promise<HTMLImageElement>((resolve, reject) => {
+      const element = new window.Image();
+      element.onload = () => resolve(element);
+      element.onerror = () => reject(new Error('Could not decode the photo'));
+      element.src = dataUrl;
+    });
+    const scale = Math.min(1, WEB_MAX_SIDE / Math.max(image.naturalWidth, image.naturalHeight));
+    const width = Math.max(1, Math.round(image.naturalWidth * scale));
+    const height = Math.max(1, Math.round(image.naturalHeight * scale));
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const context = canvas.getContext('2d');
+    if (!context) return dataUrl;
+    // JPEG has no transparency — paint white first so a PNG card stays readable.
+    context.fillStyle = '#FFFFFF';
+    context.fillRect(0, 0, width, height);
+    context.drawImage(image, 0, 0, width, height);
+    const shrunk = canvas.toDataURL('image/jpeg', WEB_JPEG_QUALITY);
+    return shrunk.length < dataUrl.length ? shrunk : dataUrl;
+  } catch (error) {
+    console.warn('[visiting-card] could not shrink the photo', error);
+    return dataUrl;
+  }
+}
 
 /**
  * Visiting-card photos, from the camera to the server.
