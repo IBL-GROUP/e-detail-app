@@ -2,7 +2,7 @@
   "expo": {
     "name": "Searle E-Detailing",
     "slug": "my-rn-app",
-    "version": "1.0.14",
+    "version": "1.0.18",
     "orientation": "default",
     "icon": "./assets/images/icon.png",
     "scheme": "myrnapp",
@@ -10,7 +10,7 @@
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.searle.edetailing",
-      "buildNumber": "2",
+      "buildNumber": "3",
       "infoPlist": {
         "ITSAppUsesNonExemptEncryption": false,
         "NSAppTransportSecurity": {
@@ -27,7 +27,7 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "predictiveBackGestureEnabled": false,
-      "versionCode": 42
+      "versionCode": 46
     },
     "web": {
       "output": "static",
