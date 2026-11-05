@@ -63,7 +63,10 @@ export function isRetryableSyncError(error: unknown): boolean {
 /** The wait before that one retry. */
 export const SYNC_RETRY_DELAY_MS = 10_000;
 
-/** How fast the day's data came: its size, the time it took, and kilobits a second. */
+/**
+ * How fast the day's data came: its size, the time it took, and kilobits a
+ * second. For a failed sync, what had arrived by the time it failed.
+ */
 export interface SyncDownload {
   bytes: number;
   ms: number;
