@@ -71,9 +71,73 @@ async function postProfilesBatch(
   }) as unknown as Promise<BatchProfileResponse>;
 }
 
+/**
+ * The server's own reason when it gave one (e.g. "Uploads must go to …", a
+ * validation message), else the transport's ("Network Error").
+ */
+function failureReason(error: any, fallback: string): string {
+  const fromServer = error?.response?.data?.message;
+  const status = error?.response?.status;
+  const text = String(fromServer || error?.message || fallback);
+  return (status ? `${text} (HTTP ${status})` : text).slice(0, 500);
+}
+
 let isFlushing = false;
 // A flush asked for while one was already running, replayed once it ends.
 let isFlushPending = false;
+
+/** Wait for a running flush to finish (bounded, so a hung request can't block Save forever). */
+async function waitForFlushIdle(timeoutMs = 45_000): Promise<void> {
+  const started = Date.now();
+  while (isFlushing && Date.now() - started < timeoutMs) {
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  }
+}
+
+export interface SyncNowResult {
+  /** The server stored it. */
+  synced: boolean;
+  /** No connection — it stays queued and uploads when the phone is back online. */
+  offline: boolean;
+  /** Why the server didn't store it, when it was online and tried. */
+  error: string | null;
+}
+
+/**
+ * Online Save, as the Searle app does it (create → SyncEngine.run, awaited):
+ * upload this profile now and report what the server said, instead of firing
+ * the upload in the background and saying nothing. Offline it just stays
+ * queued. Never throws.
+ */
+export async function syncDoctorProfileNow(clientLocalId: string): Promise<SyncNowResult> {
+  try {
+    const net = await NetInfo.fetch();
+    if (!net.isConnected) return { synced: false, offline: true, error: null };
+
+    // Another flush may hold the lock (it then skips this call) — let it end,
+    // run ours, and let any replay end too, before reading the outcome.
+    await waitForFlushIdle();
+    await flushDoctorProfileOutbox();
+    await waitForFlushIdle();
+
+    const row = (await profileAll()).find((entry) => entry.client_local_id === clientLocalId);
+    if (!row) {
+      return {
+        synced: false,
+        offline: false,
+        error: 'The server refused this profile and it was removed from the queue.',
+      };
+    }
+    if (row.synced_at != null) return { synced: true, offline: false, error: null };
+    return {
+      synced: false,
+      offline: false,
+      error: row.last_error || 'The server did not confirm the save. It will retry automatically.',
+    };
+  } catch (error: any) {
+    return { synced: false, offline: false, error: failureReason(error, 'Upload failed') };
+  }
+}
 
 const listeners = new Set<() => void>();
 
@@ -149,6 +213,8 @@ export async function enqueueDoctorProfile(
   payload: Omit<DoctorProfileInput, 'clientLocalId' | 'clientUpdatedAt'> & {
     clientLocalId?: string;
   },
+  /** `flush: false` when the caller uploads it itself (syncDoctorProfileNow). */
+  options: { flush?: boolean } = {},
 ): Promise<string> {
   const clientLocalId = payload.clientLocalId || Crypto.randomUUID();
 
@@ -173,7 +239,7 @@ export async function enqueueDoctorProfile(
   );
   notify();
   // Fire-and-forget; never block the caller on the network.
-  void flushDoctorProfileOutbox();
+  if (options.flush !== false) void flushDoctorProfileOutbox();
   return clientLocalId;
 }
 
@@ -284,7 +350,7 @@ export async function flushDoctorProfileOutbox(): Promise<number> {
         await profileMarkFailed(
           row.client_local_id,
           row.attempts,
-          String(error?.message ?? 'visiting card upload failed').slice(0, 500),
+          `Visiting card upload failed: ${failureReason(error, 'upload failed')}`,
         );
         continue;
       }
@@ -310,7 +376,7 @@ export async function flushDoctorProfileOutbox(): Promise<number> {
     } catch (error: any) {
       // Network/server failure: keep every row, and leave `attempts` alone —
       // it counts explicit refusals only.
-      const message = String(error?.message ?? 'flush failed').slice(0, 500);
+      const message = failureReason(error, 'flush failed');
       for (const item of items) {
         await profileMarkFailed(item.clientId, attemptsById.get(item.clientId) ?? 0, message);
       }

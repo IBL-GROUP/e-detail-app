@@ -6,7 +6,9 @@ import {
   enqueueDoctorProfile,
   getLocalDoctorProfiles,
   subscribeDoctorProfileOutbox,
+  syncDoctorProfileNow,
   type LocalDoctorProfile,
+  type SyncNowResult,
 } from '@/lib/offline/doctorProfileOutbox';
 
 /**
@@ -376,9 +378,16 @@ export const useDoctorProfileMaster = () =>
     staleTime: 60 * 60 * 1000,
   });
 
+/** What Save did: always stored on the device; `synced` when the server has it too. */
+export interface SaveProfileResult extends SyncNowResult {
+  clientLocalId: string;
+}
+
 /**
- * Capture a profile. Written to the device queue and resolved there — saving
- * works the same with or without signal; upload happens on the next flush.
+ * Capture a profile, as the Searle app does: written to the device queue first
+ * (so nothing is ever lost), then — when online — uploaded straight away and
+ * awaited, so the rep learns whether the server stored it. Offline it stays
+ * queued and uploads on the next flush.
  */
 export const useSaveDoctorProfile = (userId?: string, mieId?: string) => {
   const queryClient = useQueryClient();
@@ -387,16 +396,57 @@ export const useSaveDoctorProfile = (userId?: string, mieId?: string) => {
     // The write is local, so it must run even when React Query thinks we are
     // offline — the default 'online' mode would pause it.
     networkMode: 'always',
-    mutationFn: (payload: DoctorProfileFields & { clientLocalId?: string }) => {
+    mutationFn: async (
+      payload: DoctorProfileFields & { clientLocalId?: string },
+    ): Promise<SaveProfileResult> => {
       if (!userId) throw new Error('Your session has expired. Please sign in again.');
-      return enqueueDoctorProfile(userId, payload);
+      const clientLocalId = await enqueueDoctorProfile(userId, payload, { flush: false });
+      const result = await syncDoctorProfileNow(clientLocalId);
+      return { clientLocalId, ...result };
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: doctorProfilesKey(userId) });
       void queryClient.invalidateQueries({ queryKey: assignedDoctorsKey(mieId) });
+      void queryClient.invalidateQueries({ queryKey: profileMasterKey });
     },
   });
 };
+
+/**
+ * Add a hospital the rep typed to its city's master list right away
+ * (POST /doctor-profiles/hospitals, DOC-FR-017 — Searle's ensureHospital).
+ * The cached lists gain it at once, so it is offered on the next doctor too.
+ * Resolves to false when it couldn't reach the server: the name stays on the
+ * form and the server adds it when the profile is uploaded (DOC-BR-012).
+ */
+export async function addHospitalNow(
+  queryClient: ReturnType<typeof useQueryClient>,
+  city: string,
+  name: string,
+): Promise<boolean> {
+  try {
+    const response = (await axios.post('/doctor-profiles/hospitals', { city, name })) as unknown as {
+      success: boolean;
+      data: { id: number; name: string; cityId: number } | null;
+    };
+    const hospital = response?.data;
+    if (hospital) {
+      queryClient.setQueryData<ProfileMaster>(profileMasterKey, (master) => {
+        if (!master) return master;
+        const known = master.hospitals.some(
+          (entry) =>
+            entry.cityId === hospital.cityId &&
+            entry.name.toLowerCase() === hospital.name.toLowerCase(),
+        );
+        return known ? master : { ...master, hospitals: [...master.hospitals, hospital] };
+      });
+    }
+    return true;
+  } catch (error) {
+    console.warn('[doctor-profiles] hospital not added now; it is added when the profile uploads', error);
+    return false;
+  }
+}
 
 /** Discard a profile that has not reached the server. */
 export const useDiscardDoctorProfile = () =>

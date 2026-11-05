@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { ActivityIndicator, Alert, StyleSheet, Text, View } from 'react-native';
 import { KeyboardAwareScrollView } from 'react-native-keyboard-controller';
 
@@ -13,7 +14,9 @@ import {
   type DoctorProfileDraft,
 } from '@/lib/offline/doctorProfileDrafts';
 import {
+  addHospitalNow,
   lookupPmdc,
+  type SaveProfileResult,
   useDoctorProfileMaster,
   useSaveDoctorProfile,
   type AssignedDoctor,
@@ -121,6 +124,8 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
    * Save jumps to another step — either way it looked like "Save does nothing".
    */
   const [submitMessage, setSubmitMessage] = useState<string | null>(null);
+  /** Set when Save stored the profile on the device but the server refused it. */
+  const [queuedError, setQueuedError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
   // Until the rep changes WhatsApp by hand, it follows the cell number.
   const whatsappManual = useRef(false);
@@ -136,6 +141,20 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
   const savedRef = useRef(false);
 
   const masterQuery = useDoctorProfileMaster();
+  const queryClient = useQueryClient();
+
+  /** True when the master list already has this hospital for this city. */
+  const isMasterHospital = (cityName: string, hospitalName: string) => {
+    const city = (masterQuery.data?.cities ?? []).find(
+      (entry) => entry.name.toLowerCase() === cityName.trim().toLowerCase(),
+    );
+    if (!city) return false;
+    return (masterQuery.data?.hospitals ?? []).some(
+      (hospital) =>
+        hospital.cityId === city.id &&
+        hospital.name.trim().toLowerCase() === hospitalName.trim().toLowerCase(),
+    );
+  };
   const save = useSaveDoctorProfile(userId, mieId);
 
   const current = STEPS[step];
@@ -525,13 +544,14 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
       ),
     };
 
+    let result: SaveProfileResult;
     try {
       // mutateAsync, not mutate(…, { onSuccess }): the saved profile shows up
       // on the device before this resolves, which can unmount this form — and
       // React Query drops a mutate() callback whose component has gone, so the
       // draft was never cleared and the screen never went back to the list.
       try {
-        await save.mutateAsync(payload);
+        result = await save.mutateAsync(payload);
       } catch (error: any) {
         if (!/storage is full/i.test(String(error?.message ?? ''))) throw error;
         // Web: the draft holds a second copy of this same profile, photo and
@@ -539,7 +559,7 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
         // screen, and the draft is written back below if this fails too.
         await clearDraft(userId, pmdc).catch(() => {});
         try {
-          await save.mutateAsync(payload);
+          result = await save.mutateAsync(payload);
         } catch (retryError) {
           await saveDraft(userId, pmdc, {
             form,
@@ -563,9 +583,23 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
       return;
     }
     // savedRef stays true: this form is done, and Save is ignored from here on.
+    // The profile is safely queued either way, so the draft can go.
     await clearDraft(userId, pmdc).catch(() => {});
     submittingRef.current = false;
-    onSaved();
+
+    if (result.synced || result.offline) {
+      // Saved to the server — or no signal, so it uploads when back online.
+      onSaved();
+      return;
+    }
+    // Online, but the server didn't store it. Say why, plainly: this is the
+    // case that used to look like "saved" while nothing reached the database.
+    const message =
+      `Saved on this device, but NOT on the server yet: ${result.error}. ` +
+      'It will retry automatically, or open the doctor and tap Retry Upload.';
+    setQueuedError(message);
+    setSubmitMessage(message);
+    Alert.alert('Not saved on the server yet', message);
   };
 
   // ---- practice fields ------------------------------------------------------
@@ -625,7 +659,15 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
         <HospitalField
           hospitals={hospitalsFor(city)}
           value={value('Hospital')}
-          onChange={(next) => update(key('Hospital'), next)}
+          onChange={(next) => {
+            update(key('Hospital'), next);
+            // A hospital typed in (not in the master list): add it to the
+            // database now, as Searle does (DOC-FR-017). Offline, the server
+            // still adds it when the profile uploads (DOC-BR-012).
+            if (next && city && !isMasterHospital(city, next)) {
+              void addHospitalNow(queryClient, city, next);
+            }
+          }}
           city={city}
           title={dual ? `${sideLabel} · Hospital` : undefined}
           invalid={Boolean(err(key('Hospital')))}
@@ -1146,9 +1188,12 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
           onPress={back}
           style={styles.footerButton}
         />
-        {current.id === 'review' ? (
+        {current.id === 'review' && queuedError ? (
+          // Queued but refused by the server: the form is done either way.
+          <AppButton label="Done" onPress={onSaved} style={styles.footerButton} />
+        ) : current.id === 'review' ? (
           <AppButton
-            label={save.isPending ? 'Saving…' : 'Save Doctor'}
+            label={save.isPending ? 'Saving to server…' : 'Save Doctor'}
             onPress={save.isPending ? undefined : submit}
             style={[styles.footerButton, save.isPending && styles.footerButtonDisabled]}
           />
