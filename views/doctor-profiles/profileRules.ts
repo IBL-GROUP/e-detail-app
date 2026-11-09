@@ -1,4 +1,9 @@
-import type { CompanyShare, DoctorProfileFields } from '@/api/doctorProfiles';
+import type {
+  CompanyShare,
+  DoctorProfileFields,
+  DoctorProfileRow,
+  PracticeSite,
+} from '@/api/doctorProfiles';
 
 /**
  * The Doctor Information Gathering BRD, as the form needs it: the fixed
@@ -48,7 +53,9 @@ export const FALLBACK_CITIES = [
 export const RELIGIONS = ['Muslim', 'Non-Muslim'];
 export const GENDERS = ['Male', 'Female'];
 export const DIGITAL_COMFORT_LEVELS = ['Low', 'Medium', 'High'];
-export const PRACTICE_LOCATIONS = ['1', '2', '3', '4', '5'];
+/** No. of Practice Locations: a typed whole number, starting at 1, no upper limit (DINFO-BR-009). */
+export const MIN_PRACTICE_LOCATIONS = 1;
+export const DEFAULT_PRACTICE_LOCATIONS = '1';
 export const PRACTICE_TYPES = ['Private', 'Hospital', 'Both'];
 export const ADOPTION_LEVELS = ['Early Adopter', 'Mid Adopter', 'Late Adopter'];
 export const ACCESS_TYPES = ['Easy', 'Moderate', 'Restricted'];
@@ -97,7 +104,7 @@ export const FIELD_HELP = {
   rxPatterns: 'Usually written by generic or brand?',
   pharmacyOwnership: 'Owns or co-owns a pharmacy?',
   practiceType: 'Main practice setting.',
-  practiceLocations: 'More than 1 unlocks the secondary practice step.',
+  practiceLocations: 'The next step asks for the details of each location.',
   bestVisitingTime: 'Best time for a field visit at this practice.',
   appointmentSystem: 'Manual booking or a computerized appointment system.',
   session: 'Whether the session is mainly morning or evening.',
@@ -119,12 +126,12 @@ export const STEPS = [
   {
     id: 'professional',
     title: 'Professional Information',
-    description: 'Practice locations and type. Multiple locations enable secondary practice.',
+    description: 'Number of practice locations and practice type.',
   },
   {
     id: 'practice',
     title: 'Practice Locations',
-    description: 'Primary and secondary practice details on one screen for faster entry.',
+    description: 'The details of every practice location, one card each.',
   },
   {
     id: 'commercial',
@@ -144,19 +151,33 @@ export const PMDC_STEP_HINT =
 
 export type StepId = (typeof STEPS)[number]['id'];
 
-/** Which fields each step owns — errors are only shown for the current step. */
+/** One practice location's fields, in Searle's order (DINFO-FR-011). */
+export const SITE_FIELDS = [
+  'speciality', 'city', 'hospital', 'session', 'fee', 'avgTime', 'patientsPerDay',
+  'opdTiming', 'bestVisitingTime', 'appointmentSystem',
+] as const satisfies readonly (keyof PracticeSite)[];
+
+export type SiteField = (typeof SITE_FIELDS)[number];
+
+/** The form/error key of one location's field: `practiceSites.<index>.<field>`. */
+export const siteKey = (index: number, field: SiteField) => `practiceSites.${index}.${field}`;
+
+/** The location index a `practiceSites.<index>.<field>` key belongs to, else null. */
+export const siteIndexOf = (key: string) => {
+  const match = /^practiceSites\.(\d+)\./.exec(key);
+  return match ? Number(match[1]) : null;
+};
+
+/**
+ * Which fields each step owns — errors are only shown for the current step.
+ * The practice step's fields depend on the number of locations: see
+ * siteFieldKeys.
+ */
 export const STEP_FIELDS: Record<StepId, string[]> = {
   pmdc: ['pmdcNumber', 'visitingCardUrl'],
   personal: ['religion', 'age', 'gender', 'cellNo', 'whatsappNo', 'digitalComfortLevel'],
   professional: ['practiceLocations', 'practiceType'],
-  practice: [
-    'primarySpeciality', 'primaryCity', 'primaryHospital', 'primarySession', 'primaryFee',
-    'primaryAvgTime', 'primaryPatientsPerDay', 'primaryOpdTiming', 'primaryBestVisitingTime',
-    'primaryAppointmentSystem',
-    'secondarySpeciality', 'secondaryCity', 'secondaryHospital', 'secondarySession',
-    'secondaryFee', 'secondaryAvgTime', 'secondaryPatientsPerDay', 'secondaryOpdTiming',
-    'secondaryBestVisitingTime', 'secondaryAppointmentSystem',
-  ],
+  practice: [],
   commercial: [
     'innovationAdoption', 'accessType', 'preferredInteractionStyle', 'rxStatus',
     'rxPatterns', 'pharmacyOwnership', 'otherCompanyPrescribers',
@@ -164,12 +185,14 @@ export const STEP_FIELDS: Record<StepId, string[]> = {
   review: [],
 };
 
-/** The secondary-practice fields, cleared when the doctor has one location. */
-export const SECONDARY_FIELDS = [
-  'secondarySpeciality', 'secondaryHospital', 'secondaryCity', 'secondarySession',
-  'secondaryFee', 'secondaryAvgTime', 'secondaryPatientsPerDay', 'secondaryOpdTiming',
-  'secondaryBestVisitingTime', 'secondaryAppointmentSystem',
-] as const;
+/** Every field key of the first `count` locations, location by location. */
+export const siteFieldKeys = (count: number) =>
+  Array.from({ length: count }, (_, index) => SITE_FIELDS.map((field) => siteKey(index, field))).flat();
+
+export const EMPTY_SITE: PracticeSite = {
+  speciality: '', city: '', hospital: '', session: '', fee: '', avgTime: '',
+  patientsPerDay: '', opdTiming: '', bestVisitingTime: '', appointmentSystem: '',
+};
 
 /** Mobile numbers are stored the Searle way: 11 digits starting 03. */
 export const PK_MOBILE_PREFIX = '03';
@@ -178,7 +201,7 @@ export const EMPTY_PROFILE: DoctorProfileFields = {
   pmdcNumber: '', pmdcStatus: '', doctorName: '', fatherName: '', issueDate: '',
   religion: '', age: '', gender: '', cellNo: PK_MOBILE_PREFIX, whatsappNo: PK_MOBILE_PREFIX,
   digitalComfortLevel: '',
-  primarySpeciality: '', secondarySpeciality: '', practiceLocations: '', practiceType: '',
+  primarySpeciality: '', secondarySpeciality: '', practiceLocations: DEFAULT_PRACTICE_LOCATIONS, practiceType: '',
   innovationAdoption: '', accessType: '', preferredInteractionStyle: '', rxStatus: '',
   rxPatterns: '', pharmacyOwnership: '',
   otherCompanyPrescribers: [],
@@ -189,6 +212,7 @@ export const EMPTY_PROFILE: DoctorProfileFields = {
   secondaryHospital: '', secondaryCity: '', secondarySession: '', secondaryFee: '',
   secondaryAvgTime: '', secondaryPatientsPerDay: '', secondaryOpdTiming: '',
   secondaryBestVisitingTime: '', secondaryAppointmentSystem: '',
+  practiceSites: [EMPTY_SITE],
 };
 
 /** Per the BRD the name always carries "DR." (DOC-BR-007). */
@@ -220,9 +244,74 @@ export function formatPkMobile(raw: string): string {
   return digits.slice(0, 11);
 }
 
-/** More than one practice location brings in the secondary practice. */
-export const hasSecondaryPractice = (practiceLocations: string) =>
-  practiceLocations !== '' && practiceLocations !== '1';
+/** A practice-location count that is a whole number of at least 1 (DINFO-BR-009). */
+export const isValidPracticeLocations = (value: string) =>
+  /^\d+$/.test(value) && Number(value) >= MIN_PRACTICE_LOCATIONS;
+
+/**
+ * N, the number of locations Step 4 shows (DINFO-FR-011). At least 1, so
+ * Location 1 always exists, also while Step 3 holds an invalid count.
+ */
+export const practiceLocationCount = (practiceLocations: string) =>
+  isValidPracticeLocations(practiceLocations) ? Number(practiceLocations) : 1;
+
+/**
+ * The locations that are shown, validated and sent: the first N, padded with
+ * empty ones. Locations kept beyond N stay in the form, hidden (DINFO-BR-011).
+ */
+export const visibleSites = (form: Pick<DoctorProfileFields, 'practiceLocations' | 'practiceSites'>) =>
+  Array.from(
+    { length: practiceLocationCount(form.practiceLocations) },
+    (_, index) => form.practiceSites?.[index] ?? EMPTY_SITE,
+  );
+
+const flatSite = (row: Record<string, unknown>, side: 'primary' | 'secondary'): PracticeSite => {
+  const site = { ...EMPTY_SITE };
+  for (const field of SITE_FIELDS) {
+    const value = row[`${side}${field.charAt(0).toUpperCase()}${field.slice(1)}`];
+    site[field] = value == null ? '' : String(value);
+  }
+  return site;
+};
+
+/**
+ * A profile's locations (DINFO-FR-012, DINFO-DATA-004): its `practiceSites`,
+ * or — for a draft, queued profile or server row from before this change, or
+ * from the Searle app — its primary practice, plus the secondary one when
+ * there are 2 or more locations or any secondary field is filled.
+ */
+export function sitesOf(row: Partial<DoctorProfileFields> | DoctorProfileRow): PracticeSite[] {
+  const sites = (row as { practiceSites?: unknown }).practiceSites;
+  if (Array.isArray(sites) && sites.length) {
+    return sites.map((site) => {
+      const clean = { ...EMPTY_SITE };
+      for (const field of SITE_FIELDS) {
+        const value = (site as Record<string, unknown>)?.[field];
+        clean[field] = value == null ? '' : String(value);
+      }
+      return clean;
+    });
+  }
+  const flat = row as Record<string, unknown>;
+  const primary = flatSite(flat, 'primary');
+  const secondary = flatSite(flat, 'secondary');
+  const count = Number(String(flat.practiceLocations ?? '').trim());
+  const hasSecondary = count >= 2 || SITE_FIELDS.some((field) => secondary[field].trim());
+  return hasSecondary ? [primary, secondary] : [primary];
+}
+
+/**
+ * DINFO-FR-012: average time as shown — "{n} min". A value in the admin
+ * console's older "{n} Mins" form ("15 Mins") shows as "15 min"; any other
+ * text is shown as it is; blank stays blank.
+ */
+export function formatAvgTime(value: string): string {
+  const text = String(value ?? '').trim();
+  const minutes = /^(\d+)\s*(mins?\.?)?$/i.exec(text);
+  return minutes ? `${minutes[1]} min` : text;
+}
+
+const siteKeyPart = (value: string) => value.trim().replace(/\s+/g, ' ').toLowerCase();
 
 const isRequired = (value?: string | null) => String(value ?? '').trim().length > 0;
 const isPhoneNumber = (value: string) => /^\d{11}$/.test(digitsOnly(value));
@@ -252,14 +341,16 @@ export function validateProfile(form: DoctorProfileFields): Record<string, strin
 
   (
     [
-      'religion', 'gender', 'digitalComfortLevel', 'primarySpeciality', 'practiceLocations',
+      'religion', 'gender', 'digitalComfortLevel', 'practiceLocations',
       'practiceType', 'innovationAdoption', 'accessType', 'preferredInteractionStyle',
-      'rxStatus', 'rxPatterns', 'pharmacyOwnership', 'primaryHospital', 'primaryCity',
-      'primarySession', 'primaryAvgTime', 'primaryOpdTiming', 'primaryBestVisitingTime',
-      'primaryAppointmentSystem',
+      'rxStatus', 'rxPatterns', 'pharmacyOwnership',
     ] as const
   ).forEach(req);
 
+  // DINFO-BR-009
+  if (isRequired(form.practiceLocations) && !isValidPracticeLocations(form.practiceLocations)) {
+    errors.practiceLocations = `Enter a number of at least ${MIN_PRACTICE_LOCATIONS}.`;
+  }
   if (!isNonNegativeNumeric(form.age || '')) errors.age = 'Enter a valid non-negative age.';
   if (!isRequired(form.cellNo)) errors.cellNo = REQUIRED_MSG;
   else if (!isPhoneNumber(form.cellNo)) errors.cellNo = 'Cell number must be exactly 11 digits.';
@@ -267,38 +358,88 @@ export function validateProfile(form: DoctorProfileFields): Record<string, strin
   else if (!isPhoneNumber(form.whatsappNo)) {
     errors.whatsappNo = 'WhatsApp number must be exactly 11 digits.';
   }
-  if (!isNonNegativeNumeric(form.primaryFee || '')) {
-    errors.primaryFee = 'Enter a valid non-negative fee.';
-  }
-  if (!isNonNegativeNumeric(form.primaryAvgTime || '')) {
-    errors.primaryAvgTime = 'Enter avg time in minutes (numbers only).';
-  }
-  if (!isNonNegativeNumeric(form.primaryPatientsPerDay || '')) {
-    errors.primaryPatientsPerDay = 'Enter a valid non-negative number.';
-  }
-
   const shareError = validateShares(form.otherCompanyPrescribers);
   if (shareError) errors.otherCompanyPrescribers = shareError;
 
-  if (hasSecondaryPractice(form.practiceLocations)) {
-    (
-      [
-        'secondarySpeciality', 'secondaryHospital', 'secondaryCity', 'secondarySession',
-        'secondaryAvgTime', 'secondaryOpdTiming', 'secondaryBestVisitingTime',
-        'secondaryAppointmentSystem',
-      ] as const
-    ).forEach(req);
-    if (!isNonNegativeNumeric(form.secondaryFee || '')) {
-      errors.secondaryFee = 'Enter a valid non-negative fee.';
-    }
-    if (!isNonNegativeNumeric(form.secondaryAvgTime || '')) {
-      errors.secondaryAvgTime = 'Enter avg time in minutes (numbers only).';
-    }
-    if (!isNonNegativeNumeric(form.secondaryPatientsPerDay || '')) {
-      errors.secondaryPatientsPerDay = 'Enter a valid non-negative number.';
-    }
-  }
+  Object.assign(errors, validateSites(visibleSites(form)));
   return errors;
+}
+
+/**
+ * DINFO-BR-010: every shown location needs the primary practice's fields.
+ * DINFO-BR-013: no speciality twice at one hospital (same city), checked on
+ * the later location. Keys are siteKey(index, field).
+ */
+export function validateSites(sites: PracticeSite[]): Record<string, string> {
+  const errors: Record<string, string> = {};
+  const required: SiteField[] = [
+    'speciality', 'city', 'hospital', 'session', 'avgTime', 'opdTiming',
+    'bestVisitingTime', 'appointmentSystem',
+  ];
+
+  sites.forEach((site, index) => {
+    for (const field of required) {
+      if (!isRequired(site[field])) errors[siteKey(index, field)] = REQUIRED_MSG;
+    }
+    if (!isNonNegativeNumeric(site.fee || '')) {
+      errors[siteKey(index, 'fee')] = 'Enter a valid non-negative fee.';
+    }
+    if (!isNonNegativeNumeric(site.avgTime || '')) {
+      errors[siteKey(index, 'avgTime')] = 'Enter avg time in minutes (numbers only).';
+    }
+    if (!isNonNegativeNumeric(site.patientsPerDay || '')) {
+      errors[siteKey(index, 'patientsPerDay')] = 'Enter a valid non-negative number.';
+    }
+  });
+  return { ...errors, ...siteClashes(sites) };
+}
+
+/**
+ * DINFO-BR-013: the same speciality at the same hospital (same city) twice,
+ * reported on the later location's speciality. Also run as soon as one of
+ * those fields is chosen, not only on Next.
+ */
+export function siteClashes(sites: PracticeSite[]): Record<string, string> {
+  const errors: Record<string, string> = {};
+  const seen = new Map<string, number>();
+  sites.forEach((site, index) => {
+    if (!isRequired(site.city) || !isRequired(site.hospital) || !isRequired(site.speciality)) return;
+    const key = [site.city, site.hospital, site.speciality].map(siteKeyPart).join('\u0000');
+    const first = seen.get(key);
+    if (first == null) {
+      seen.set(key, index);
+    } else {
+      errors[siteKey(index, 'speciality')] =
+        `${site.speciality} is already entered for ${site.hospital.trim()} at Location ${first + 1}.`;
+    }
+  });
+  return errors;
+}
+
+/**
+ * DINFO-DATA-003: what is sent for the locations — practiceSites (the first N,
+ * hospital names trimmed), practiceLocations = N, and primary* / secondary*
+ * mirroring locations 1 and 2 for a backend without practiceSites.
+ */
+export function sitesPayload(form: DoctorProfileFields) {
+  const sites = visibleSites(form).map((site) => ({
+    ...site,
+    hospital: site.hospital.trim().replace(/\s+/g, ' '),
+  }));
+  const mirror: Record<string, string> = {};
+  for (const field of SITE_FIELDS) {
+    const suffix = `${field.charAt(0).toUpperCase()}${field.slice(1)}`;
+    mirror[`primary${suffix}`] = sites[0]?.[field] ?? '';
+    mirror[`secondary${suffix}`] = sites[1]?.[field] ?? '';
+  }
+  return {
+    ...(mirror as Pick<
+      DoctorProfileFields,
+      Extract<keyof DoctorProfileFields, `primary${string}` | `secondary${string}`>
+    >),
+    practiceLocations: String(sites.length),
+    practiceSites: sites,
+  };
 }
 
 /** The rows the rep actually filled in — blank placeholder rows dropped. */

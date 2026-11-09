@@ -373,41 +373,48 @@ export function RecordBanner({
   );
 }
 
-/** The sticky "Primary | Secondary" heads over the two practice columns. */
-export function PracticeColumnHeads() {
-  return (
-    <View style={styles.heads} pointerEvents="none">
-      <Text style={[styles.head, styles.headPrimary]}>Primary</Text>
-      <View style={styles.headRule} />
-      <Text style={[styles.head, styles.headSecondary]}>Secondary</Text>
-    </View>
-  );
-}
-
 /**
- * Primary | Secondary practice side by side with one continuous rule between
- * (Searle's PracticeDualColumns). Laid out row by row, so a field always sits
- * level with its partner — an error or a wrapped label on one side can't push
- * the rest of that column out of line.
+ * One practice location on Step 4 (DINFO-FR-011): a card titled
+ * "Location <n>" that collapses to its header, which then shows the
+ * location's hospital and speciality. Marked red while it has errors.
  */
-export function PracticeDualRows({
-  rows,
+export function LocationCard({
+  index,
+  summary,
+  open,
+  onToggle,
+  hasErrors = false,
+  children,
 }: {
-  rows: { key: string; primary: ReactNode; secondary: ReactNode }[];
+  index: number;
+  summary: string;
+  open: boolean;
+  onToggle: () => void;
+  hasErrors?: boolean;
+  children: ReactNode;
 }) {
   return (
-    <View>
-      {rows.map((row, index) => (
-        <View key={row.key} style={styles.pairRow}>
-          <View style={[styles.pairCell, index < rows.length - 1 && styles.pairCellSpaced]}>
-            {row.primary}
-          </View>
-          <View style={styles.dualRule} />
-          <View style={[styles.pairCell, index < rows.length - 1 && styles.pairCellSpaced]}>
-            {row.secondary}
-          </View>
+    <View style={[styles.section, hasErrors && styles.sectionInvalid]}>
+      <Pressable
+        onPress={onToggle}
+        style={({ pressed }) => [styles.locationHead, pressed && styles.locationHeadPressed]}
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel={`Location ${index + 1}${summary ? `, ${summary}` : ''}`}
+      >
+        <Ionicons name="business-outline" size={16} color={Colors.primary} />
+        <View style={styles.locationTitleWrap}>
+          <Text style={styles.sectionTitle}>Location {index + 1}</Text>
+          {!open && summary ? (
+            <Text style={styles.locationSummary} numberOfLines={1}>
+              {summary}
+            </Text>
+          ) : null}
         </View>
-      ))}
+        {hasErrors && !open ? <Ionicons name="alert-circle" size={18} color={Colors.danger} /> : null}
+        <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={18} color={Colors.textMuted} />
+      </Pressable>
+      {open ? children : null}
     </View>
   );
 }
@@ -664,52 +671,29 @@ const styles = StyleSheet.create({
     fontSize: 12,
     lineHeight: 17,
   },
-  // Primary | Secondary
-  heads: {
+  // Location cards (Step 4)
+  sectionInvalid: {
+    borderWidth: 1,
+    borderColor: Colors.danger,
+  },
+  locationHead: {
     flexDirection: 'row',
     alignItems: 'center',
-    paddingTop: 8,
-    borderTopWidth: StyleSheet.hairlineWidth,
-    borderTopColor: Colors.border,
+    gap: 8,
+    minHeight: 32,
   },
-  head: {
+  locationHeadPressed: {
+    opacity: 0.7,
+  },
+  locationTitleWrap: {
     flex: 1,
     minWidth: 0,
-    fontSize: 14,
-    fontWeight: '800',
-    textTransform: 'uppercase',
-    letterSpacing: 0.8,
-    textAlign: 'center',
+    gap: 2,
   },
-  headPrimary: {
-    color: Colors.secondary,
-  },
-  headSecondary: {
-    color: Colors.primary,
-  },
-  headRule: {
-    width: StyleSheet.hairlineWidth,
-    height: 22,
-    backgroundColor: Colors.textMuted,
-    marginHorizontal: 8,
-  },
-  pairRow: {
-    flexDirection: 'row',
-    alignItems: 'stretch',
-    width: '100%',
-  },
-  pairCell: {
-    flex: 1,
-    minWidth: 0,
-  },
-  pairCellSpaced: {
-    paddingBottom: 14,
-  },
-  dualRule: {
-    width: StyleSheet.hairlineWidth,
-    alignSelf: 'stretch',
-    backgroundColor: Colors.border,
-    marginHorizontal: 10,
+  locationSummary: {
+    fontSize: 12,
+    fontWeight: '600',
+    color: Colors.textMuted,
   },
   // Detail rows
   detailRow: {

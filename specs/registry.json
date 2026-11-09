@@ -1,0 +1,91 @@
+{
+  "$comment": "Machine-readable spec registry read by scripts/specs/validate-specs.mjs. Human docs: specs/CONVENTIONS.md. Every requirement-ID prefix must be registered here, with the one spec file allowed to define it.",
+  "requiredFiles": [
+    "specs/README.md",
+    "specs/CONVENTIONS.md",
+    "specs/templates/feature-spec.md",
+    "specs/templates/adr.md",
+    "specs/process/spec-first-workflow.md",
+    "specs/process/migration-plan.md",
+    "specs/product/product-overview.md",
+    "specs/architecture/repository-assessment.md",
+    "specs/architecture/system-architecture.md",
+    "specs/api/README.md",
+    "specs/api/openapi.json",
+    "specs/features/README.md",
+    "specs/traceability/matrix.md",
+    "AGENTS.md"
+  ],
+  "prefixes": {
+    "SFR": { "name": "Specification tooling and process", "spec": "specs/CONVENTIONS.md" },
+    "PLAT": { "name": "Platform and technical standards", "spec": "specs/standards/technical-standards.md" },
+    "SECR": { "name": "Cross-cutting security", "spec": "specs/standards/security.md" },
+    "AUTH": { "name": "Authentication and session", "spec": "specs/domains/auth.md" },
+    "PERM": { "name": "Permissions and navigation", "spec": "specs/domains/permissions.md" },
+    "SYNC": { "name": "Daily sync and offline data", "spec": "specs/domains/sync.md" },
+    "CALL": { "name": "Doctors and call reporting (e-Detailing)", "spec": "specs/domains/calls.md" },
+    "DINFO": { "name": "Doctor information gathering (app side)", "spec": "specs/domains/doctor-info.md" },
+    "PAT": { "name": "Patient log", "spec": "specs/domains/patients.md" },
+    "CONT": { "name": "Content library and portfolio", "spec": "specs/domains/content.md" },
+    "ANLY": { "name": "Analytics and PDF export", "spec": "specs/domains/analytics.md" },
+    "TEL": { "name": "Usage telemetry and crash reporting", "spec": "specs/domains/telemetry.md" }
+  },
+  "external": {
+    "DOC": {
+      "name": "Doctor Information Gathering (backend)",
+      "source": "the backend repository spec FEAT-doctor-info-gathering (not in this repo)"
+    }
+  },
+  "requiredSections": {
+    "domain": [
+      "Overview",
+      "Goals and Scope",
+      "Actors",
+      "Functional Requirements",
+      "Business Rules",
+      "Data Requirements",
+      "API and Interface Contracts",
+      "Error Handling",
+      "Security Requirements",
+      "Acceptance Criteria",
+      "Testing Requirements",
+      "Dependencies",
+      "Known Gaps and Open Questions"
+    ],
+    "feature": [
+      "Overview",
+      "Goals and Scope",
+      "Actors",
+      "Functional Requirements",
+      "Business Rules",
+      "Data Requirements",
+      "API and Interface Contracts",
+      "Error Handling",
+      "Security Requirements",
+      "Non-Functional Requirements",
+      "Acceptance Criteria",
+      "Testing Requirements",
+      "Dependencies",
+      "Known Gaps and Open Questions",
+      "Change Log"
+    ],
+    "template:feature": [
+      "Overview",
+      "Goals and Scope",
+      "Actors",
+      "Functional Requirements",
+      "Business Rules",
+      "Data Requirements",
+      "API and Interface Contracts",
+      "Error Handling",
+      "Security Requirements",
+      "Non-Functional Requirements",
+      "Acceptance Criteria",
+      "Testing Requirements",
+      "Dependencies",
+      "Known Gaps and Open Questions",
+      "Change Log"
+    ],
+    "adr": ["Context", "Decision", "Consequences"]
+  }
+}

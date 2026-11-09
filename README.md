@@ -1,3 +1,22 @@
+# Searle E-Detailing — mobile app
+
+Offline-first Expo / React Native app for Searle's field reps: planned doctors, GPS-anchored
+e-detailing calls, doctor profiles, patient log, and call and sales analytics.
+
+**This repository is specification-first.** Intended behaviour is defined in [`specs/`](specs/README.md).
+Read the [workflow](specs/process/spec-first-workflow.md) before changing behaviour. AI agents:
+see [`AGENTS.md`](AGENTS.md).
+
+```bash
+npm run specs:validate   # validate specs, requirement IDs, API contract, traceability matrix
+npm run specs:matrix     # regenerate specs/traceability/matrix.md after editing specs
+npm run lint
+```
+
+End-user documentation: [USER_MANUAL.md](USER_MANUAL.md), [TRAINING_MANUAL.md](TRAINING_MANUAL.md).
+
+---
+
 # Welcome to your Expo app 👋
 
 This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).

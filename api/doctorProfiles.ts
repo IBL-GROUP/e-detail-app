@@ -26,6 +26,20 @@ export interface CompanyShare {
   percent: number;
 }
 
+/** One practice location (DINFO-DATA-003, backend DOC-BR-019). */
+export interface PracticeSite {
+  speciality: string;
+  city: string;
+  hospital: string;
+  session: string;
+  fee: string;
+  avgTime: string;
+  patientsPerDay: string;
+  opdTiming: string;
+  bestVisitingTime: string;
+  appointmentSystem: string;
+}
+
 /**
  * The profile fields, camelCase as the API takes them (DOC-DATA-001). Values are
  * strings as the form holds them; the server converts the numeric ones.
@@ -77,6 +91,14 @@ export interface DoctorProfileFields {
   secondaryOpdTiming: string;
   secondaryBestVisitingTime: string;
   secondaryAppointmentSystem: string;
+  /**
+   * Every practice location in order (DINFO-DATA-003). The form keeps
+   * locations beyond No. of Practice Locations here too, hidden, so lowering
+   * the count and raising it again brings them back (DINFO-BR-011); only the
+   * first N are sent, and primary* / secondary* mirror locations 1 and 2.
+   * Absent on profiles queued or stored before this change.
+   */
+  practiceSites: PracticeSite[];
 }
 
 /** What is queued and sent: the fields plus the offline upsert key and stamp. */

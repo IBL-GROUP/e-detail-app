@@ -32,8 +32,7 @@ import {
   FieldRow,
   FormStepper,
   HospitalField,
-  PracticeColumnHeads,
-  PracticeDualRows,
+  LocationCard,
   ReadOnlyValue,
   RecordBanner,
   SectionCard,
@@ -48,7 +47,9 @@ import {
   BEST_VISITING_TIMES,
   DIGITAL_COMFORT_LEVELS,
   DOCTOR_SPECIALITIES,
+  DEFAULT_PRACTICE_LOCATIONS,
   EMPTY_PROFILE,
+  EMPTY_SITE,
   FALLBACK_CITIES,
   FIELD_HELP,
   GENDERS,
@@ -56,25 +57,33 @@ import {
   OPD_TIMINGS,
   PHARMACY_OWNERSHIP,
   PMDC_STEP_HINT,
-  PRACTICE_LOCATIONS,
   PRACTICE_TYPES,
   RELIGIONS,
   RX_PATTERNS,
   RX_STATUSES,
-  SECONDARY_FIELDS,
   SESSION_TIMES,
   STEPS,
   STEP_FIELDS,
   filledShares,
   formatDoctorName,
   formatPkMobile,
-  hasSecondaryPractice,
   normalizePmdcStatus,
+  siteFieldKeys,
+  siteIndexOf,
+  siteClashes,
+  siteKey,
+  sitesOf,
+  sitesPayload,
   validateProfile,
+  visibleSites,
+  type SiteField,
 } from './profileRules';
 
 /** Digits only, for the numeric boxes. */
 const numeric = (value: string, max: number) => value.replace(/[^0-9]/g, '').slice(0, max);
+
+/** A DINFO-BR-013 speciality-clash message (see siteClashes). */
+const CLASH_MESSAGE = / is already entered for .* at Location \d+\.$/;
 
 /** The PMDC register's half of the profile. */
 type Identity = Pick<
@@ -95,8 +104,8 @@ interface ProfileFormProps {
 
 /**
  * Capture one doctor's profile: the Searle app's six steps and screen layout
- * (stepper, doctor banner, Primary | Secondary columns, review card), built
- * with this app's components and colours.
+ * (stepper, doctor banner, review card), built with this app's components and
+ * colours. Step 4 has one card per practice location (DINFO-FR-011).
  *
  * Offline-first like everything a rep records here. The in-progress form is
  * saved on the device as a draft (so a killed app loses nothing), and Save
@@ -127,6 +136,8 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
   /** Set when Save stored the profile on the device but the server refused it. */
   const [queuedError, setQueuedError] = useState<string | null>(null);
   const [hydrated, setHydrated] = useState(false);
+  /** The Step 4 location cards that are expanded (DINFO-FR-011): Location 1 to start. */
+  const [openSites, setOpenSites] = useState<Set<number>>(() => new Set([0]));
   // Until the rep changes WhatsApp by hand, it follows the cell number.
   const whatsappManual = useRef(false);
   const scrollRef = useRef<any>(null);
@@ -158,7 +169,7 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
   const save = useSaveDoctorProfile(userId, mieId);
 
   const current = STEPS[step];
-  const showSecondary = hasSecondaryPractice(form.practiceLocations);
+  const sites = visibleSites(form);
 
   // ---- master lists -------------------------------------------------------
 
@@ -169,10 +180,10 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
 
   /**
    * The city's hospitals from the master list, plus any hospital the rep has
-   * added on this form for that city — so one added for the primary practice
-   * is offered for a secondary practice in the same city too (Searle keeps it
-   * in the session list the same way). The server adds it to the master when
-   * the profile lands (DOC-BR-012).
+   * added on this form for that city — so one added for one location is
+   * offered for another location in the same city too (Searle keeps it in the
+   * session list the same way). The server adds it to the master when the
+   * profile lands (DOC-BR-012).
    */
   const hospitalsFor = (cityName: string) => {
     const lower = cityName.trim().toLowerCase();
@@ -185,9 +196,9 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
           .filter((hospital) => hospital.cityId === city.id)
           .map((hospital) => hospital.name)
       : [];
-    const added = (['primary', 'secondary'] as const)
-      .filter((side) => form[`${side}City`].trim().toLowerCase() === lower)
-      .map((side) => form[`${side}Hospital`].trim())
+    const added = sites
+      .filter((site) => site.city.trim().toLowerCase() === lower)
+      .map((site) => site.hospital.trim())
       .filter(Boolean);
     const merged = [...names];
     for (const name of added) {
@@ -260,6 +271,11 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
           visitingCardUrl: String(draft.form.visitingCardUrl ?? '').startsWith('blob:')
             ? ''
             : draft.form.visitingCardUrl,
+          // DINFO-BR-009: drafts saved before the default existed start at 1 too.
+          practiceLocations: draft.form.practiceLocations || DEFAULT_PRACTICE_LOCATIONS,
+          // DINFO-DATA-004: a draft from before practiceSites existed keeps its
+          // primary/secondary practice as Locations 1 and 2.
+          practiceSites: sitesOf(draft.form),
           // The register's identity wins over whatever the draft held.
           ...Object.fromEntries(
             Object.entries(identityFromList).filter(([, value]) => Boolean(value)),
@@ -304,9 +320,9 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
         form.religion ||
           form.gender ||
           form.age ||
-          form.practiceLocations ||
-          form.primaryHospital ||
-          form.primaryCity ||
+          // The default of 1 alone is not progress.
+          (form.practiceLocations && form.practiceLocations !== DEFAULT_PRACTICE_LOCATIONS) ||
+          form.practiceSites.some((site) => site.hospital || site.city) ||
           form.visitingCardUrl,
       );
     if (!hasProgress) return;
@@ -362,35 +378,63 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
     if (key === 'cellNo' && !whatsappManual.current) clearError('whatsappNo');
   };
 
-  /** A new city empties its hospital — the old one belongs to another city. */
-  const pickCity = (side: 'primary' | 'secondary', city: string) => {
-    setForm((prev) => ({ ...prev, [`${side}City`]: city, [`${side}Hospital`]: '' }));
-    clearError(`${side}City`);
-    clearError(`${side}Hospital`);
+  /**
+   * Change fields of location `index`. Locations up to it that don't exist
+   * yet are created empty; locations beyond N are never touched, so they come
+   * back as they were if N is raised again (DINFO-BR-011).
+   */
+  const updateSite = (index: number, changes: Partial<Record<SiteField, string>>) => {
+    const withChange = (list: DoctorProfileFields['practiceSites']) => {
+      const practiceSites = [...list];
+      while (practiceSites.length <= index) practiceSites.push(EMPTY_SITE);
+      practiceSites[index] = { ...practiceSites[index], ...changes };
+      return practiceSites;
+    };
+    setForm((prev) => ({ ...prev, practiceSites: withChange(prev.practiceSites) }));
+    (Object.keys(changes) as SiteField[]).forEach((field) => clearError(siteKey(index, field)));
+
+    // DINFO-BR-013: a speciality clash shows the moment the speciality, city
+    // or hospital that causes it is chosen — and goes once it is resolved.
+    // It is reported on the later location, which may be another card.
+    if ('speciality' in changes || 'hospital' in changes || 'city' in changes) {
+      const clashes = siteClashes(
+        visibleSites({ ...form, practiceSites: withChange(form.practiceSites) }),
+      );
+      setErrors((prev) => {
+        const next = { ...prev };
+        for (const key of Object.keys(next)) {
+          if (key.endsWith('.speciality') && CLASH_MESSAGE.test(next[key])) delete next[key];
+        }
+        return { ...next, ...clashes };
+      });
+      openSitesWithErrors(clashes);
+    }
   };
 
-  /** The secondary speciality can't repeat the primary one. */
-  const pickPrimarySpeciality = (value: string) => {
-    setForm((prev) => ({
-      ...prev,
-      primarySpeciality: value,
-      ...(prev.secondarySpeciality === value ? { secondarySpeciality: '' } : {}),
-    }));
-    clearError('primarySpeciality');
+  // DINFO-BR-009: typed, digits only, leading zeros dropped, no upper limit.
+  // DINFO-BR-011: lowering it only hides locations; nothing is cleared.
+  const setPracticeLocations = (raw: string) => {
+    const value = raw.replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
+    setForm((prev) => ({ ...prev, practiceLocations: value }));
+    clearError('practiceLocations');
   };
 
-  const setPracticeLocations = (value: string) => {
-    setForm((prev) => {
-      const next = { ...prev, practiceLocations: value };
-      // One location: the secondary practice no longer exists — clear it so a
-      // stale half-filled one is never submitted.
-      if (!hasSecondaryPractice(value)) {
-        for (const key of SECONDARY_FIELDS) next[key] = '';
-      }
+  const toggleSite = (index: number) =>
+    setOpenSites((prev) => {
+      const next = new Set(prev);
+      if (next.has(index)) next.delete(index);
+      else next.add(index);
       return next;
     });
-    clearError('practiceLocations');
-    if (!hasSecondaryPractice(value)) SECONDARY_FIELDS.forEach((key) => clearError(key));
+
+  /** Expand every location card that has an error, so the error can be seen. */
+  const openSitesWithErrors = (stepErrors: Record<string, string>) => {
+    const indexes = Object.keys(stepErrors)
+      .map(siteIndexOf)
+      .filter((index): index is number => index != null);
+    if (!indexes.length) return false;
+    setOpenSites((prev) => new Set([...prev, ...indexes]));
+    return true;
   };
 
   // ---- navigation -----------------------------------------------------------
@@ -418,13 +462,10 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
     });
   };
 
-  /** The fields one step owns — the secondary ones only with a 2nd location. */
+  /** The fields one step owns — on Step 4, those of the N shown locations. */
   const fieldsFor = (stepIndex: number, snapshot: DoctorProfileFields) => {
-    const fields = STEP_FIELDS[STEPS[stepIndex].id];
-    if (STEPS[stepIndex].id === 'practice' && !hasSecondaryPractice(snapshot.practiceLocations)) {
-      return fields.filter((field) => !field.startsWith('secondary'));
-    }
-    return fields;
+    if (STEPS[stepIndex].id === 'practice') return siteFieldKeys(visibleSites(snapshot).length);
+    return STEP_FIELDS[STEPS[stepIndex].id];
   };
 
   /** Errors for one step only — never leak red text into later steps. */
@@ -448,7 +489,12 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
     const stepErrors = errorsFor(step, snapshot);
     setErrors(stepErrors);
     if (Object.keys(stepErrors).length) {
-      scrollToFirstError(fieldsFor(step, snapshot), stepErrors);
+      // A collapsed card's fields aren't on screen: open it, then scroll.
+      if (openSitesWithErrors(stepErrors)) {
+        setTimeout(() => scrollToFirstError(fieldsFor(step, snapshot), stepErrors), 80);
+      } else {
+        scrollToFirstError(fieldsFor(step, snapshot), stepErrors);
+      }
       return;
     }
     setStep((value) => Math.min(value + 1, STEPS.length - 1));
@@ -469,6 +515,7 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
     const stepErrors = errorsFor(index, form);
     setStep(index);
     setErrors(stepErrors);
+    openSitesWithErrors(stepErrors);
     setTimeout(() => scrollToFirstError(fieldsFor(index, form), stepErrors), 80);
   };
 
@@ -507,7 +554,6 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
 
     submittingRef.current = true;
     savedRef.current = true;
-    const trim = (value: string) => value.trim().replace(/\s+/g, ' ');
 
     // Web: a card picked before this fix is a blob: URL, which the browser
     // may already have thrown away. Read it now; if it's gone, say so plainly
@@ -534,11 +580,11 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
 
     const payload = {
       ...form,
+      // DINFO-DATA-003: the first N locations, with primary*/secondary*
+      // mirroring locations 1 and 2 (hospital names trimmed).
+      ...sitesPayload(form),
       visitingCardUrl,
       doctorName: formatDoctorName(form.doctorName),
-      // A typed hospital name may still carry a trailing space.
-      primaryHospital: trim(form.primaryHospital),
-      secondaryHospital: trim(form.secondaryHospital),
       otherCompanyPrescribers: filledShares(form.otherCompanyPrescribers).map(
         (row: CompanyShare) => ({ company: row.company.trim(), percent: Number(row.percent) }),
       ),
@@ -607,169 +653,157 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
   const err = (key: string) => errors[key];
 
   /**
-   * One practice location's ten fields, in Searle's order, each keyed by its
-   * name — so the two locations can be laid out row by row side by side.
-   * `dual` sizes them for a half-width column and names the side in each
-   * dropdown's title (Searle's contextLabel).
+   * One practice location's ten fields, in Searle's order (DINFO-FR-011),
+   * keyed siteKey(index, field) so an error can scroll to it. Every location
+   * offers the full speciality list (DINFO-BR-012).
    */
-  const practiceFields = (side: 'primary' | 'secondary', dual: boolean) => {
-    const key = (name: string) => `${side}${name}` as keyof DoctorProfileFields;
-    const value = (name: string) => String(form[key(name)] ?? '');
-    const city = value('City');
-    const sideLabel = side === 'primary' ? 'Primary' : 'Secondary';
-    const sheetTitle = (label: string) => (dual ? `${sideLabel} · ${label}` : `Select ${label}`);
-    const specialities =
-      side === 'secondary'
-        ? DOCTOR_SPECIALITIES.filter((name) => name !== form.primarySpeciality)
-        : DOCTOR_SPECIALITIES;
+  const siteFields = (index: number) => {
+    const site = sites[index];
+    const key = (field: SiteField) => siteKey(index, field);
+    const sheetTitle = (label: string) => `Location ${index + 1} · ${label}`;
 
     return [
-      <Field key="Speciality" name={key('Speciality')} label="Speciality" required error={err(key('Speciality'))}>
+      <Field key="speciality" name={key('speciality')} label="Speciality" required error={err(key('speciality'))}>
         <SelectField
-          options={specialities}
-          value={value('Speciality')}
-          onChange={(next) =>
-            side === 'primary' ? pickPrimarySpeciality(next) : update(key('Speciality'), next)
-          }
+          options={DOCTOR_SPECIALITIES}
+          value={site.speciality}
+          onChange={(next) => updateSite(index, { speciality: next })}
           placeholder="Select an option"
           title={sheetTitle('Speciality')}
-          invalid={Boolean(err(key('Speciality')))}
+          invalid={Boolean(err(key('speciality')))}
           searchable
         />
       </Field>,
-      <Field key="City" name={key('City')} label="City" required error={err(key('City'))}>
+      <Field key="city" name={key('city')} label="City" required error={err(key('city'))}>
         <SelectField
           options={cities}
-          value={city}
-          onChange={(next) => pickCity(side, next)}
+          value={site.city}
+          // DINFO-BR-008: a new city empties the hospital — it belongs to another city.
+          onChange={(next) => updateSite(index, { city: next, hospital: '' })}
           placeholder="Select an option"
           title={sheetTitle('City')}
-          invalid={Boolean(err(key('City')))}
+          invalid={Boolean(err(key('city')))}
           searchable
         />
       </Field>,
       <Field
-        key="Hospital"
-        name={key('Hospital')}
+        key="hospital"
+        name={key('hospital')}
         label="Hospital"
         required
         help={FIELD_HELP.hospital}
-        error={err(key('Hospital'))}
+        error={err(key('hospital'))}
       >
         <HospitalField
-          hospitals={hospitalsFor(city)}
-          value={value('Hospital')}
+          hospitals={hospitalsFor(site.city)}
+          value={site.hospital}
           onChange={(next) => {
-            update(key('Hospital'), next);
+            updateSite(index, { hospital: next });
             // A hospital typed in (not in the master list): add it to the
             // database now, as Searle does (DOC-FR-017). Offline, the server
             // still adds it when the profile uploads (DOC-BR-012).
-            if (next && city && !isMasterHospital(city, next)) {
-              void addHospitalNow(queryClient, city, next);
+            if (next && site.city && !isMasterHospital(site.city, next)) {
+              void addHospitalNow(queryClient, site.city, next);
             }
           }}
-          city={city}
-          title={dual ? `${sideLabel} · Hospital` : undefined}
-          invalid={Boolean(err(key('Hospital')))}
+          city={site.city}
+          title={sheetTitle('Hospital')}
+          invalid={Boolean(err(key('hospital')))}
         />
       </Field>,
-      <Field key="Session" name={key('Session')} label="Session" required error={err(key('Session'))}>
+      <Field key="session" name={key('session')} label="Session" required error={err(key('session'))}>
         <ChoiceChips
           options={SESSION_TIMES}
-          value={value('Session')}
-          onChange={(next) => update(key('Session'), next)}
-          invalid={Boolean(err(key('Session')))}
-          compact={dual}
+          value={site.session}
+          onChange={(next) => updateSite(index, { session: next })}
+          invalid={Boolean(err(key('session')))}
         />
       </Field>,
-      <Field key="Fee" name={key('Fee')} label="Fee / Patient" required error={err(key('Fee'))}>
-        <TextField
-          value={value('Fee')}
-          onChangeText={(next) => update(key('Fee'), numeric(next, 7))}
-          placeholder="Numbers only"
-          keyboardType="number-pad"
-          invalid={Boolean(err(key('Fee')))}
-        />
-      </Field>,
-      <Field key="AvgTime" name={key('AvgTime')} label="Avg Time / Patient" required error={err(key('AvgTime'))}>
-        <TextField
-          value={value('AvgTime')}
-          onChangeText={(next) => update(key('AvgTime'), numeric(next, 3))}
-          placeholder="Minutes (numbers only)"
-          keyboardType="number-pad"
-          invalid={Boolean(err(key('AvgTime')))}
-        />
-      </Field>,
-      <Field
-        key="PatientsPerDay"
-        name={key('PatientsPerDay')}
-        label="No# Patient/Day"
-        required
-        error={err(key('PatientsPerDay'))}
-      >
-        <TextField
-          value={value('PatientsPerDay')}
-          onChangeText={(next) => update(key('PatientsPerDay'), numeric(next, 4))}
-          keyboardType="number-pad"
-          invalid={Boolean(err(key('PatientsPerDay')))}
-        />
-      </Field>,
-      <Field key="OpdTiming" name={key('OpdTiming')} label="OPD Timing" required error={err(key('OpdTiming'))}>
+      <FieldRow key="numbers">
+        <Field name={key('fee')} label="Fee / Patient" required inRow error={err(key('fee'))}>
+          <TextField
+            value={site.fee}
+            onChangeText={(next) => updateSite(index, { fee: numeric(next, 7) })}
+            placeholder="Numbers only"
+            keyboardType="number-pad"
+            invalid={Boolean(err(key('fee')))}
+          />
+        </Field>
+        <Field name={key('avgTime')} label="Avg Time / Patient" required inRow error={err(key('avgTime'))}>
+          <TextField
+            value={site.avgTime}
+            onChangeText={(next) => updateSite(index, { avgTime: numeric(next, 3) })}
+            placeholder="Minutes (numbers only)"
+            keyboardType="number-pad"
+            invalid={Boolean(err(key('avgTime')))}
+          />
+        </Field>
+        <Field
+          name={key('patientsPerDay')}
+          label="No# Patient/Day"
+          required
+          inRow
+          error={err(key('patientsPerDay'))}
+        >
+          <TextField
+            value={site.patientsPerDay}
+            onChangeText={(next) => updateSite(index, { patientsPerDay: numeric(next, 4) })}
+            keyboardType="number-pad"
+            invalid={Boolean(err(key('patientsPerDay')))}
+          />
+        </Field>
+      </FieldRow>,
+      <Field key="opdTiming" name={key('opdTiming')} label="OPD Timing" required error={err(key('opdTiming'))}>
         <SelectField
           options={OPD_TIMINGS}
-          value={value('OpdTiming')}
-          onChange={(next) => update(key('OpdTiming'), next)}
+          value={site.opdTiming}
+          onChange={(next) => updateSite(index, { opdTiming: next })}
           placeholder="Select an option"
           title={sheetTitle('OPD Timing')}
-          invalid={Boolean(err(key('OpdTiming')))}
+          invalid={Boolean(err(key('opdTiming')))}
           searchable={false}
         />
       </Field>,
       <Field
-        key="BestVisitingTime"
-        name={key('BestVisitingTime')}
+        key="bestVisitingTime"
+        name={key('bestVisitingTime')}
         label="Best Visiting Time"
         required
-        error={err(key('BestVisitingTime'))}
+        error={err(key('bestVisitingTime'))}
       >
         <SelectField
           options={BEST_VISITING_TIMES}
-          value={value('BestVisitingTime')}
-          onChange={(next) => update(key('BestVisitingTime'), next)}
+          value={site.bestVisitingTime}
+          onChange={(next) => updateSite(index, { bestVisitingTime: next })}
           placeholder="Select an option"
           title={sheetTitle('Best Visiting Time')}
-          invalid={Boolean(err(key('BestVisitingTime')))}
+          invalid={Boolean(err(key('bestVisitingTime')))}
           searchable
         />
       </Field>,
       <Field
-        key="AppointmentSystem"
-        name={key('AppointmentSystem')}
+        key="appointmentSystem"
+        name={key('appointmentSystem')}
         label="Appointment System"
         required
-        error={err(key('AppointmentSystem'))}
+        error={err(key('appointmentSystem'))}
       >
         <ChoiceChips
           options={APPOINTMENT_SYSTEMS}
-          value={value('AppointmentSystem')}
-          onChange={(next) => update(key('AppointmentSystem'), next)}
-          invalid={Boolean(err(key('AppointmentSystem')))}
-          compact={dual}
+          value={site.appointmentSystem}
+          onChange={(next) => updateSite(index, { appointmentSystem: next })}
+          invalid={Boolean(err(key('appointmentSystem')))}
         />
       </Field>,
     ];
   };
 
-  /** Primary | Secondary, paired row by row so each field sits level with its partner. */
-  const dualPracticeRows = () => {
-    const primary = practiceFields('primary', true);
-    const secondary = practiceFields('secondary', true);
-    return primary.map((field, index) => ({
-      key: String(field.key),
-      primary: field,
-      secondary: secondary[index],
-    }));
-  };
+  /** "Hospital · Speciality", for a collapsed location card's header. */
+  const siteSummary = (index: number) =>
+    [sites[index].hospital.trim(), sites[index].speciality].filter(Boolean).join(' · ');
+
+  const siteHasErrors = (index: number) =>
+    Object.keys(errors).some((key) => siteIndexOf(key) === index);
 
   // ---- steps ----------------------------------------------------------------
 
@@ -903,14 +937,12 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
               help={FIELD_HELP.practiceLocations}
               error={err('practiceLocations')}
             >
-              <SelectField
-                options={PRACTICE_LOCATIONS}
+              <TextField
                 value={form.practiceLocations}
-                onChange={setPracticeLocations}
-                placeholder="Select"
-                title="Select No. of Practice Locations"
+                onChangeText={setPracticeLocations}
+                placeholder="1 or more"
+                keyboardType="number-pad"
                 invalid={Boolean(err('practiceLocations'))}
-                searchable={false}
               />
             </Field>
             <Field
@@ -931,15 +963,19 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
         );
 
       case 'practice':
-        return showSecondary ? (
-          <SectionCard dense>
-            <PracticeDualRows rows={dualPracticeRows()} />
-          </SectionCard>
-        ) : (
-          <SectionCard title="Practice Location" icon="business-outline">
-            {practiceFields('primary', false)}
-          </SectionCard>
-        );
+        // DINFO-FR-011: one card per location, stacked on every screen size.
+        return sites.map((_, index) => (
+          <LocationCard
+            key={index}
+            index={index}
+            summary={siteSummary(index)}
+            open={openSites.has(index)}
+            onToggle={() => toggleSite(index)}
+            hasErrors={siteHasErrors(index)}
+          >
+            {siteFields(index)}
+          </LocationCard>
+        ));
 
       case 'commercial':
         return (
@@ -1104,10 +1140,22 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
               <DetailRow label="Gender" value={form.gender} />
               <DetailRow label="Age" value={form.age} />
               <DetailRow label="Cell No" value={form.cellNo} />
-              <DetailRow label="Speciality" value={form.primarySpeciality} />
               <DetailRow label="Practice Type" value={form.practiceType} />
-              <DetailRow label="Hospital" value={form.primaryHospital} />
-              <DetailRow label="City" value={form.primaryCity} />
+              {/* DINFO-FR-012: every location, in order. */}
+              {sites.map((site, index) => (
+                <DetailRow
+                  key={index}
+                  label={`Location ${index + 1}`}
+                  value={[
+                    site.speciality,
+                    [site.hospital.trim(), site.city].filter(Boolean).join(', '),
+                    site.bestVisitingTime,
+                    site.appointmentSystem,
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                />
+              ))}
               <DetailRow label="TSCL Prescriber" value={form.rxStatus} />
               <DetailRow
                 label="Other Company Prescriber"
@@ -1115,14 +1163,6 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
                   .map((row) => `${row.company} – ${row.percent}%`)
                   .join('; ')}
               />
-              <DetailRow label="Best Visiting Time" value={form.primaryBestVisitingTime} />
-              <DetailRow label="Appointment" value={form.primaryAppointmentSystem} />
-              {showSecondary ? (
-                <DetailRow
-                  label="Secondary"
-                  value={[form.secondaryHospital, form.secondaryCity].filter(Boolean).join(', ')}
-                />
-              ) : null}
             </View>
           </SectionCard>
           </>
@@ -1142,7 +1182,7 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
   return (
     <View style={styles.fill}>
       {/* Searle's sticky header: stepper, then the doctor banner (or, on the
-          PMDC step, the step hint), then the column heads for two practices. */}
+          PMDC step, the step hint). */}
       <View style={styles.stickyHeader}>
         <FormStepper titles={STEPS.map((entry) => entry.title)} current={step} />
         {current.id !== 'pmdc' && form.doctorName ? (
@@ -1157,7 +1197,6 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
             {current.id === 'pmdc' ? PMDC_STEP_HINT : current.description}
           </Text>
         )}
-        {current.id === 'practice' && showSecondary ? <PracticeColumnHeads /> : null}
       </View>
 
       <KeyboardAwareScrollView

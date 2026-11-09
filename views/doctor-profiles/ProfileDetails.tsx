@@ -2,42 +2,42 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-import type { CompanyShare, DoctorProfileRow } from '@/api/doctorProfiles';
+import type { CompanyShare, DoctorProfileRow, PracticeSite } from '@/api/doctorProfiles';
 import { Colors } from '@/constants/theme';
 import { ImageViewerModal } from '@/views/patients/ImageViewerModal';
 import { DetailRow } from './formParts';
-import { filledShares, formatDoctorName, hasSecondaryPractice } from './profileRules';
+import { filledShares, formatAvgTime, formatDoctorName, sitesOf } from './profileRules';
 
 type Section = { key: string; label: string; render: () => ReactNode };
 
 /**
  * A captured profile, read-only — the Searle app's Doctor Details screen: a
  * hero card with the doctor's name and PMDC, a segmented control
- * (Profile · Specialty · Insights · Clinic 1 · Clinic 2), and the chosen
- * section's rows in a card. In this app's colours.
+ * (Profile · Specialty · Insights · Locations), and the chosen section's rows
+ * in a card. In this app's colours. Locations lists every practice location
+ * (DINFO-FR-012), where Searle had one tab per clinic.
  */
 export function ProfileDetails({ profile }: { profile: DoctorProfileRow }) {
   const [activeKey, setActiveKey] = useState('profile');
   const [viewerOpen, setViewerOpen] = useState(false);
   const card = String(profile.visitingCardUrl ?? '').trim();
-  const secondary = hasSecondaryPractice(String(profile.practiceLocations ?? ''));
+  // DINFO-FR-012: older and Searle profiles read as Locations 1 and 2.
+  const sites = useMemo(() => sitesOf(profile), [profile]);
 
   const sections = useMemo<Section[]>(() => {
-    const field = (name: string) => (profile as Record<string, unknown>)[name];
-    const clinicRows = (side: 'primary' | 'secondary') => {
-      const value = (name: string) => field(`${side}${name}`);
-      const minutes = String(value('AvgTime') ?? '').trim();
+    const clinicRows = (site: PracticeSite) => {
       return (
         <>
-          <DetailRow label="Hospital" value={value('Hospital')} />
-          <DetailRow label="City" value={value('City')} />
-          <DetailRow label="Session" value={value('Session')} />
-          <DetailRow label="Fee / Patient" value={value('Fee')} />
-          <DetailRow label="Avg Time" value={minutes ? `${minutes} min` : ''} />
-          <DetailRow label="Patients / Day" value={value('PatientsPerDay')} />
-          <DetailRow label="OPD Timing" value={value('OpdTiming')} />
-          <DetailRow label="Best Visiting Time" value={value('BestVisitingTime')} />
-          <DetailRow label="Appointment" value={value('AppointmentSystem')} />
+          <DetailRow label="Speciality" value={site.speciality} />
+          <DetailRow label="Hospital" value={site.hospital} />
+          <DetailRow label="City" value={site.city} />
+          <DetailRow label="Session" value={site.session} />
+          <DetailRow label="Fee / Patient" value={site.fee} />
+          <DetailRow label="Avg Time" value={formatAvgTime(site.avgTime)} />
+          <DetailRow label="Patients / Day" value={site.patientsPerDay} />
+          <DetailRow label="OPD Timing" value={site.opdTiming} />
+          <DetailRow label="Best Visiting Time" value={site.bestVisitingTime} />
+          <DetailRow label="Appointment" value={site.appointmentSystem} />
         </>
       );
     };
@@ -78,10 +78,13 @@ export function ProfileDetails({ profile }: { profile: DoctorProfileRow }) {
         label: 'Specialty',
         render: () => (
           <>
-            <DetailRow label="Primary Speciality" value={profile.primarySpeciality} />
-            {String(profile.secondarySpeciality ?? '').trim() ? (
-              <DetailRow label="Secondary Speciality" value={profile.secondarySpeciality} />
-            ) : null}
+            {sites.map((site, index) => (
+              <DetailRow
+                key={index}
+                label={sites.length > 1 ? `Speciality · Location ${index + 1}` : 'Speciality'}
+                value={site.speciality}
+              />
+            ))}
             <DetailRow label="Practice Locations" value={profile.practiceLocations} />
             <DetailRow label="Practice Type" value={profile.practiceType} />
           </>
@@ -107,13 +110,20 @@ export function ProfileDetails({ profile }: { profile: DoctorProfileRow }) {
           </>
         ),
       },
-      { key: 'primary', label: secondary ? 'Clinic 1' : 'Clinic', render: () => clinicRows('primary') },
+      {
+        key: 'locations',
+        label: 'Locations',
+        render: () =>
+          sites.map((site, index) => (
+            <View key={index} style={index > 0 ? styles.locationBlockSpaced : undefined}>
+              <Text style={styles.locationTitle}>Location {index + 1}</Text>
+              {clinicRows(site)}
+            </View>
+          )),
+      },
     ];
-    if (secondary) {
-      list.push({ key: 'secondary', label: 'Clinic 2', render: () => clinicRows('secondary') });
-    }
     return list;
-  }, [profile, secondary, card]);
+  }, [profile, sites, card]);
 
   const active = sections.find((section) => section.key === activeKey) ?? sections[0];
 
@@ -301,5 +311,14 @@ const styles = StyleSheet.create({
   },
   pressed: {
     opacity: 0.75,
+  },
+  locationTitle: {
+    paddingTop: 10,
+    fontSize: 14,
+    fontWeight: '800',
+    color: Colors.primary,
+  },
+  locationBlockSpaced: {
+    marginTop: 8,
   },
 });

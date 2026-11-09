@@ -1,0 +1,3965 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "E-Detailing backend API — as consumed by the e-detail-app mobile client",
+    "version": "2026-11-06",
+    "description": "Client-side contract reverse-engineered from the app (commit e4f6eda). It documents what the app SENDS and READS, not the full server API. Every response body is read after the axios interceptor unwraps response.data. Kept in sync with the code by scripts/specs/validate-specs.mjs (rule API-014). Requirement links are in x-requirements."
+  },
+  "servers": [
+    {
+      "url": "{baseUrl}",
+      "description": "EXPO_PUBLIC_API_BASE_URL (ends in /api)",
+      "variables": {
+        "baseUrl": {
+          "default": "http://localhost:3017/api"
+        }
+      }
+    }
+  ],
+  "security": [
+    {
+      "bearerAuth": []
+    }
+  ],
+  "paths": {
+    "/auth/login": {
+      "post": {
+        "operationId": "login",
+        "summary": "Sign in (12 s client timeout)",
+        "x-requirements": [
+          "AUTH-FR-001",
+          "AUTH-FR-002"
+        ],
+        "security": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LoginResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Invalid credentials (shown on the login screen; never ends a session)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/auth/offline-users": {
+      "post": {
+        "operationId": "getOfflineUsers",
+        "summary": "Download the active-user login mirror (8 s timeout)",
+        "x-requirements": [
+          "AUTH-FR-005",
+          "SECR-SEC-001"
+        ],
+        "security": [
+          {
+            "appKey": []
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {}
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "count": {
+                      "type": "integer"
+                    },
+                    "users": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/OfflineUserRecord"
+                      }
+                    }
+                  },
+                  "required": [
+                    "success",
+                    "users"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bad x-app-key — session kept",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/auth/change-password": {
+      "post": {
+        "operationId": "changePassword",
+        "summary": "Change password; server verifies currentPassword",
+        "x-requirements": [
+          "AUTH-FR-009",
+          "AUTH-FR-010"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/me/permissions": {
+      "get": {
+        "operationId": "getMyPermissions",
+        "summary": "Permission codes of the signed-in user (8 s timeout)",
+        "x-requirements": [
+          "PERM-FR-001"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/doctor": {
+      "get": {
+        "operationId": "getDoctors",
+        "summary": "Team doctor pool (unplanned); app requests limit 500",
+        "x-requirements": [
+          "CALL-FR-018"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mieId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "teamId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DoctorDataResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/doctor/planned": {
+      "get": {
+        "operationId": "getPlannedDoctors",
+        "summary": "Rep's planned doctors; app requests limit 500",
+        "x-requirements": [
+          "CALL-FR-001"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mieId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "tso_staff.tsoid of the signed-in rep"
+            }
+          },
+          {
+            "name": "teamId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "offset",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DoctorDataResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/doctor/planned-all": {
+      "get": {
+        "operationId": "getPlannedAll",
+        "summary": "Every rep's planned list, keyed by tsoid",
+        "x-requirements": [
+          "SYNC-FR-006",
+          "SECR-SEC-001"
+        ],
+        "security": [
+          {
+            "appKey": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PlannedAllResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Bad x-app-key — session kept",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/calls": {
+      "post": {
+        "operationId": "postCall",
+        "summary": "Record one call (defined in api/calls.ts but not called — uploads use /calls/batch)",
+        "x-requirements": [
+          "CALL-DATA-001"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "deprecated": true,
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CallTrackingInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "callId": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/calls/batch": {
+      "post": {
+        "operationId": "postCallsBatch",
+        "summary": "Upload queued call phases (≤ 50); per-item results",
+        "x-requirements": [
+          "CALL-API-001",
+          "CALL-API-002",
+          "CALL-DATA-001"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "calls": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/BatchCallItem"
+                    }
+                  }
+                },
+                "required": [
+                  "calls"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/calls/completed": {
+      "get": {
+        "operationId": "getCompletedDoctorIds",
+        "summary": "Doctor ids with a recorded call (see CALL-GAP-012 on \"today\" vs month)",
+        "x-requirements": [
+          "CALL-BR-003"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mieId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "tso_staff.tsoid of the signed-in rep"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "doctorIds": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/calls/monthly-totals": {
+      "get": {
+        "operationId": "getMonthlyCallTotals",
+        "summary": "Calls, time, coverage and plan for a period",
+        "x-requirements": [
+          "ANLY-FR-002",
+          "ANLY-BR-001",
+          "ANLY-BR-002"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mieId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "tso_staff.tsoid of the signed-in rep"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Period start (YYYY-MM-DD). Omitted → current calendar month."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Period end (YYYY-MM-DD)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonthlyCallTotals"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/calls/engagement": {
+      "get": {
+        "operationId": "getEngagement",
+        "summary": "Average slide time per call by specialty and brand",
+        "x-requirements": [
+          "ANLY-FR-002"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mieId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "tso_staff.tsoid of the signed-in rep"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Period start (YYYY-MM-DD). Omitted → current calendar month."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Period end (YYYY-MM-DD)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EngagementBreakdown"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/calls/slide-engagement": {
+      "get": {
+        "operationId": "getSlideEngagement",
+        "summary": "Per-slide time grouped by specialty",
+        "x-requirements": [
+          "ANLY-FR-002"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mieId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "tso_staff.tsoid of the signed-in rep"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Period start (YYYY-MM-DD). Omitted → current calendar month."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            },
+            "description": "Period end (YYYY-MM-DD)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SlideEngagementResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/calls/last-feedback": {
+      "get": {
+        "operationId": "getCallNotes",
+        "summary": "Every note the rep wrote about a doctor, newest first",
+        "x-requirements": [
+          "CALL-FR-005"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mieId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "tso_staff.tsoid of the signed-in rep"
+            }
+          },
+          {
+            "name": "doctorId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CallNotesResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/calls/doctor-summary": {
+      "get": {
+        "operationId": "getDoctorCallSummary",
+        "summary": "This month's calls with one doctor, optionally one call kind",
+        "x-requirements": [
+          "CALL-FR-011"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mieId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "tso_staff.tsoid of the signed-in rep"
+            }
+          },
+          {
+            "name": "doctorId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "kind",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            },
+            "description": "chamber | parking | group | join"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DoctorCallSummaryResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/content/specialties": {
+      "get": {
+        "operationId": "getSpecialties",
+        "summary": "Specialties (only the rep's when mieId given)",
+        "x-requirements": [
+          "CALL-FR-013",
+          "PAT-BR-004"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mieId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/Specialty"
+                      }
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/content/team-brands": {
+      "get": {
+        "operationId": "getTeamBrands",
+        "summary": "Team's brands, SKUs and slide images",
+        "x-requirements": [
+          "CONT-FR-001"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "teamId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/TeamBrand"
+                      }
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/content/mie-brands": {
+      "get": {
+        "operationId": "getMieBrands",
+        "summary": "Rep's product book (products/brands)",
+        "x-requirements": [
+          "CONT-FR-003",
+          "PAT-BR-004"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mieId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "tso_staff.tsoid of the signed-in rep"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/MieBrand"
+                      }
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/content/forcing": {
+      "get": {
+        "operationId": "getForcingContent",
+        "summary": "Slide deck for a doctor (or a specialty for group calls)",
+        "x-requirements": [
+          "CALL-FR-008",
+          "CALL-BR-010"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "teamId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "doctorId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "specialtyId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "mieId",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ForcingContentResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/sku": {
+      "get": {
+        "operationId": "getTeamSkus",
+        "summary": "Distinct SKU names of the team (samples picker)",
+        "x-requirements": [
+          "CALL-BR-009"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "teamId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "count": {
+                      "type": "integer"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/mie_sales/summary": {
+      "get": {
+        "operationId": "getMieSalesSummary",
+        "summary": "Sales summary for a period (180 s client timeout; server caches 30 min)",
+        "x-requirements": [
+          "ANLY-FR-003",
+          "ANLY-API-001"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mieId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "tso_staff.tsoid of the signed-in rep"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "date"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MieSalesSummary"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/sync/daily": {
+      "get": {
+        "operationId": "getDailySync",
+        "summary": "The day's bundle: doctors, pool, SKUs, brands, decks",
+        "x-requirements": [
+          "SYNC-FR-001"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "teamId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "name": "mieId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "tso_staff.tsoid of the signed-in rep"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DailySyncResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/patients": {
+      "get": {
+        "operationId": "getPatients",
+        "summary": "The rep's whole patient log",
+        "x-requirements": [
+          "PAT-FR-001"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mieId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "tso_staff.tsoid of the signed-in rep"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PatientsResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/patients/batch": {
+      "post": {
+        "operationId": "postPatientsBatch",
+        "summary": "Upsert queued patients (≤ 50); per-item results",
+        "x-requirements": [
+          "PAT-FR-004",
+          "PAT-API-001",
+          "PAT-DATA-001"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "patients": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/PatientBatchItem"
+                    }
+                  }
+                },
+                "required": [
+                  "patients"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/patients/attachments": {
+      "post": {
+        "operationId": "uploadPatientAttachment",
+        "summary": "Upload one prescription image (120 s timeout)",
+        "x-requirements": [
+          "PAT-FR-004"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/doctor-profiles": {
+      "get": {
+        "operationId": "getDoctorProfiles",
+        "summary": "Profiles owned by the token's user",
+        "x-requirements": [
+          "DINFO-FR-001",
+          "DINFO-DATA-003",
+          "DINFO-FR-012"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "count": {
+                      "type": "integer"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/DoctorProfileRow"
+                      }
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/doctor-profiles/assigned": {
+      "get": {
+        "operationId": "getAssignedDoctors",
+        "summary": "Assigned doctors with filled flag",
+        "x-requirements": [
+          "DINFO-FR-001"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "mieId",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "description": "tso_staff.tsoid of the signed-in rep"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "array",
+                      "items": {
+                        "$ref": "#/components/schemas/AssignedDoctor"
+                      }
+                    },
+                    "meta": {
+                      "type": "object",
+                      "properties": {
+                        "assigned": {
+                          "type": "integer"
+                        },
+                        "filled": {
+                          "type": "integer"
+                        }
+                      }
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/doctor-profiles/master": {
+      "get": {
+        "operationId": "getProfileMaster",
+        "summary": "Cities, hospitals and pharma companies",
+        "x-requirements": [
+          "DINFO-FR-010"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/ProfileMaster"
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/doctor-profiles/pmdc/{pmdcNumber}": {
+      "get": {
+        "operationId": "lookupPmdc",
+        "summary": "PMDC identity lookup (cites DOC-FR-010)",
+        "x-requirements": [
+          "DINFO-FR-003",
+          "DOC-FR-010"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "parameters": [
+          {
+            "name": "pmdcNumber",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "$ref": "#/components/schemas/PmdcIdentity"
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid PMDC",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "404": {
+            "description": "Not found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/doctor-profiles/hospitals": {
+      "post": {
+        "operationId": "addHospital",
+        "summary": "Add a hospital to a city (cites DOC-FR-017)",
+        "x-requirements": [
+          "DINFO-FR-009",
+          "DOC-FR-017"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "city": {
+                    "type": "string",
+                    "description": "City name"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "city",
+                  "name"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    },
+                    "data": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "integer"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "cityId": {
+                          "type": "integer"
+                        }
+                      },
+                      "nullable": true
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/doctor-profiles/batch": {
+      "post": {
+        "operationId": "postDoctorProfilesBatch",
+        "summary": "Upsert queued profiles (≤ 25, DOC-FR-009)",
+        "x-requirements": [
+          "DINFO-API-001",
+          "DINFO-DATA-001",
+          "DOC-FR-009",
+          "DINFO-DATA-003",
+          "DINFO-DATA-004"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "profiles": {
+                    "type": "array",
+                    "items": {
+                      "$ref": "#/components/schemas/DoctorProfileBatchItem"
+                    }
+                  }
+                },
+                "required": [
+                  "profiles"
+                ]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BatchResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/doctor-profiles/visiting-card": {
+      "post": {
+        "operationId": "uploadVisitingCard",
+        "summary": "Upload a visiting-card photo (120 s timeout)",
+        "x-requirements": [
+          "DINFO-FR-004",
+          "DINFO-API-001"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UploadRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UploadResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    },
+    "/usage/app-events": {
+      "post": {
+        "operationId": "postUsageEvents",
+        "summary": "Upload queued usage and crash events",
+        "x-requirements": [
+          "TEL-FR-004"
+        ],
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UsageUpload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "OK",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "object",
+                  "properties": {
+                    "success": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": [
+                    "success"
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      },
+      "appKey": {
+        "type": "apiKey",
+        "in": "header",
+        "name": "x-app-key",
+        "description": "Shared OFFLINE_SYNC_KEY for pre-login bootstrap routes"
+      }
+    },
+    "responses": {
+      "Unauthorized": {
+        "description": "Only code TOKEN_EXPIRED / TOKEN_INVALID / TOKEN_MISSING ends the session (AUTH-FR-007)",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      },
+      "Error": {
+        "description": "Error; message shown to the user where relevant",
+        "content": {
+          "application/json": {
+            "schema": {
+              "$ref": "#/components/schemas/ErrorResponse"
+            }
+          }
+        }
+      }
+    },
+    "schemas": {
+      "ErrorResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "code": {
+            "type": "string",
+            "description": "TOKEN_EXPIRED | TOKEN_INVALID | TOKEN_MISSING on auth failures"
+          }
+        }
+      },
+      "LoginRequest": {
+        "type": "object",
+        "properties": {
+          "username": {
+            "type": "string",
+            "description": "Email identifier: \"<employee no><EXPO_PUBLIC_LOGIN_EMAIL_DOMAIN>\" unless the input contained \"@\""
+          },
+          "password": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "username",
+          "password"
+        ]
+      },
+      "LoginResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "token": {
+            "type": "string",
+            "description": "JWT; expiry from its exp claim"
+          },
+          "expiresIn": {
+            "type": "string",
+            "description": "Informational only"
+          },
+          "user": {
+            "type": "object",
+            "properties": {
+              "userId": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "nullable": true
+              },
+              "username": {
+                "type": "string"
+              },
+              "displayName": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string"
+              },
+              "teamId": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "nullable": true,
+                "description": "Required by the app — login rejected when null"
+              },
+              "teamName": {
+                "type": "string",
+                "nullable": true
+              },
+              "mieId": {
+                "oneOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "nullable": true,
+                "description": "Required by the app — login rejected when null"
+              }
+            },
+            "required": [
+              "userId",
+              "username"
+            ]
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "Not read by the app"
+          }
+        },
+        "required": [
+          "success",
+          "token",
+          "user"
+        ]
+      },
+      "OfflineUserRecord": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "nullable": true
+          },
+          "username": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "displayName": {
+            "type": "string"
+          },
+          "passwordHash": {
+            "type": "string",
+            "description": "bcrypt hash, verified on device"
+          },
+          "accountLocked": {
+            "type": "boolean"
+          },
+          "teamId": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "nullable": true
+          },
+          "teamName": {
+            "type": "string",
+            "nullable": true
+          },
+          "mieId": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "nullable": true
+          }
+        },
+        "required": [
+          "userId",
+          "username",
+          "passwordHash"
+        ]
+      },
+      "ChangePasswordRequest": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "number"
+              }
+            ],
+            "nullable": true
+          },
+          "username": {
+            "type": "string"
+          },
+          "currentPassword": {
+            "type": "string"
+          },
+          "newPassword": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "userId",
+          "username",
+          "currentPassword",
+          "newPassword"
+        ]
+      },
+      "PermissionsResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "data": {
+            "type": "object",
+            "properties": {
+              "permissions": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "ONE_FOR.MOBILE.E_DETAILING_APP.<SECTION>.<ACTION>"
+              }
+            }
+          }
+        },
+        "required": [
+          "success"
+        ]
+      },
+      "DoctorDataRow": {
+        "type": "object",
+        "properties": {
+          "TEAMID": {
+            "type": "integer"
+          },
+          "MieSasId": {
+            "type": "integer"
+          },
+          "MieName": {
+            "type": "string"
+          },
+          "DOCTORID": {
+            "type": "integer"
+          },
+          "DOCTORNAME": {
+            "type": "string"
+          },
+          "SpecialtyId": {
+            "type": "integer"
+          },
+          "SpecialtyByCommercial": {
+            "type": "string"
+          },
+          "SpecialtyByIkon": {
+            "type": "string"
+          },
+          "CITY": {
+            "type": "string"
+          },
+          "DocLat": {
+            "type": "string",
+            "description": "Day clinic latitude (text)"
+          },
+          "DocLng": {
+            "type": "string"
+          },
+          "DocEveLat": {
+            "type": "string",
+            "description": "Evening clinic latitude (text)"
+          },
+          "DocEveLng": {
+            "type": "string"
+          },
+          "ClinicAddress": {
+            "type": "string"
+          },
+          "PMDC": {
+            "type": "string"
+          },
+          "DoctorClass": {
+            "type": "string",
+            "description": "A1 / A2 / A3 / A4 … for this rep"
+          },
+          "VisitCount": {
+            "type": "number",
+            "nullable": true,
+            "description": "Completed calls this month"
+          },
+          "MaxVisitCount": {
+            "type": "number",
+            "nullable": true,
+            "description": "Monthly quota of the class; null when unclassified"
+          },
+          "VisitStatus": {
+            "type": "string",
+            "nullable": true,
+            "description": "completed | in_progress"
+          },
+          "VisitsChamber": {
+            "type": "number",
+            "nullable": true
+          },
+          "VisitsGroup": {
+            "type": "number",
+            "nullable": true
+          },
+          "VisitsParking": {
+            "type": "number",
+            "nullable": true
+          },
+          "VisitsJoin": {
+            "type": "number",
+            "nullable": true
+          },
+          "LastVisit": {
+            "type": "string",
+            "nullable": true,
+            "description": "YYYY-MM-DD"
+          }
+        },
+        "description": "All fields optional"
+      },
+      "DoctorDataResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "totalCount": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "hasMore": {
+            "type": "boolean"
+          },
+          "source": {
+            "type": "string",
+            "description": "e.g. temporary-fallback"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DoctorDataRow"
+            }
+          }
+        },
+        "required": [
+          "success",
+          "data",
+          "hasMore",
+          "offset",
+          "count"
+        ]
+      },
+      "PlannedAllResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "reps": {
+            "type": "integer"
+          },
+          "byMie": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/DoctorDataRow"
+              }
+            },
+            "description": "Planned list keyed by tsoid"
+          }
+        },
+        "required": [
+          "success",
+          "byMie"
+        ]
+      },
+      "CallTrackingInput": {
+        "type": "object",
+        "properties": {
+          "client_call_id": {
+            "type": "string",
+            "description": "Client UUID; server upserts on it"
+          },
+          "tsoid": {
+            "type": "string"
+          },
+          "doctorid": {
+            "type": "string",
+            "description": "Numeric string; absent on a group \"started\" row"
+          },
+          "doctor_name": {
+            "type": "string"
+          },
+          "doctor_specialty": {
+            "type": "string"
+          },
+          "pmdc": {
+            "type": "string"
+          },
+          "doctor_last_visit": {
+            "type": "string",
+            "description": "YYYY-MM-DD"
+          },
+          "latitude": {
+            "type": "number"
+          },
+          "longitude": {
+            "type": "number"
+          },
+          "arrived_location": {
+            "type": "string"
+          },
+          "arrived_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "arrived_within_vicinity": {
+            "type": "boolean",
+            "description": "Within 50 m of day or evening clinic"
+          },
+          "arrived_distance_meters": {
+            "type": "number"
+          },
+          "call_start_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "call_end_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "total_call_time_seconds": {
+            "type": "number"
+          },
+          "total_slides_count": {
+            "type": "number"
+          },
+          "shown_slides_count": {
+            "type": "number"
+          },
+          "slides_total_time_seconds": {
+            "type": "number"
+          },
+          "each_slide_time": {
+            "description": "jsonb — { \"<brand> - <sku>\": seconds }"
+          },
+          "slide_time_detail": {
+            "description": "jsonb — [{ order, forcing, brand, sku, url, seconds }]"
+          },
+          "brand": {
+            "description": "jsonb — [{ id, name }]"
+          },
+          "sku": {
+            "description": "jsonb — [{ brand_id, name }]"
+          },
+          "brand_slide_time": {
+            "description": "jsonb"
+          },
+          "sku_slide_time": {
+            "description": "jsonb"
+          },
+          "join_call": {
+            "description": "jsonb — string[] of RM/SM/HOS/NSM"
+          },
+          "sample_provided": {
+            "type": "boolean"
+          },
+          "samples_json": {
+            "description": "jsonb — { samples: string[] }"
+          },
+          "feedback": {
+            "type": "string",
+            "description": "Comma-separated quick-feedback chips"
+          },
+          "feedback_comment": {
+            "type": "string"
+          },
+          "call_type": {
+            "type": "string",
+            "description": "planned | unplanned"
+          },
+          "institution_call_type": {
+            "type": "string",
+            "description": "chamber | parking | group | join"
+          },
+          "call_outcome": {
+            "type": "string",
+            "description": "started | completed | cancelled"
+          },
+          "cancel_reason": {
+            "type": "string"
+          },
+          "call_cancel_time": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "route_json": {
+            "description": "jsonb"
+          },
+          "engagement_score": {
+            "type": "number"
+          },
+          "conversion_score": {
+            "type": "number"
+          },
+          "recording_url": {
+            "type": "string"
+          },
+          "recording_duration_seconds": {
+            "type": "number"
+          },
+          "prescriptions_json": {
+            "description": "jsonb"
+          },
+          "current_medicines_json": {
+            "description": "jsonb"
+          },
+          "created_by": {
+            "type": "integer",
+            "description": "Resolved server-side from tsoid"
+          }
+        },
+        "required": [
+          "client_call_id",
+          "tsoid"
+        ]
+      },
+      "BatchCallItem": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/CallTrackingInput"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "clientId": {
+                "type": "string",
+                "description": "Outbox row id, echoed in results"
+              }
+            },
+            "required": [
+              "clientId"
+            ]
+          }
+        ]
+      },
+      "BatchItemResult": {
+        "type": "object",
+        "properties": {
+          "clientId": {
+            "type": "string",
+            "nullable": true
+          },
+          "success": {
+            "type": "boolean"
+          },
+          "status": {
+            "type": "integer",
+            "description": "HTTP-style per-item status. 4xx = this row is wrong (counts toward 5-strike removal); 5xx or absent = server fault (kept)."
+          },
+          "message": {
+            "type": "string"
+          },
+          "callId": {
+            "type": "integer"
+          },
+          "sNo": {
+            "type": "number",
+            "nullable": true
+          },
+          "id": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "clientId",
+          "success"
+        ]
+      },
+      "BatchResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BatchItemResult"
+            }
+          }
+        },
+        "required": [
+          "success",
+          "results"
+        ]
+      },
+      "MonthlyCallTotals": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "thisMonth": {
+            "type": "integer"
+          },
+          "previousMonth": {
+            "type": "integer"
+          },
+          "thisMonthSeconds": {
+            "type": "number"
+          },
+          "previousMonthSeconds": {
+            "type": "number"
+          },
+          "thisMonthDoctorIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "plannedCalls": {
+            "type": "integer"
+          },
+          "assignedDoctors": {
+            "type": "integer"
+          },
+          "currentFrom": {
+            "type": "string",
+            "nullable": true
+          },
+          "currentTo": {
+            "type": "string",
+            "nullable": true
+          },
+          "previousFrom": {
+            "type": "string",
+            "nullable": true
+          },
+          "previousTo": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "success"
+        ]
+      },
+      "EngagementSlice": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "seconds": {
+            "type": "number",
+            "description": "Average per call"
+          },
+          "calls": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "name",
+          "seconds",
+          "calls"
+        ]
+      },
+      "EngagementBreakdown": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "bySpecialty": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EngagementSlice"
+            }
+          },
+          "byBrand": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EngagementSlice"
+            }
+          }
+        },
+        "required": [
+          "success"
+        ]
+      },
+      "SlideEngagementSlide": {
+        "type": "object",
+        "properties": {
+          "url": {
+            "type": "string"
+          },
+          "label": {
+            "type": "string"
+          },
+          "brand": {
+            "type": "string"
+          },
+          "sku": {
+            "type": "string"
+          },
+          "order": {
+            "type": "integer"
+          },
+          "seconds": {
+            "type": "number"
+          },
+          "totalSeconds": {
+            "type": "number"
+          },
+          "calls": {
+            "type": "integer"
+          }
+        }
+      },
+      "SlideEngagementResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "bySpecialty": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "slides": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SlideEngagementSlide"
+                  }
+                },
+                "calls": {
+                  "type": "integer"
+                },
+                "totalSeconds": {
+                  "type": "number"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "success"
+        ]
+      },
+      "CallNote": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "date": {
+            "type": "string",
+            "description": "YYYY-MM-DD"
+          },
+          "feedback": {
+            "type": "string",
+            "nullable": true
+          },
+          "feedbackComment": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "date"
+        ]
+      },
+      "CallNotesResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "notes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CallNote"
+            },
+            "nullable": true
+          },
+          "feedback": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/CallNote"
+              }
+            ],
+            "nullable": true,
+            "description": "Older backends: single newest note"
+          }
+        },
+        "required": [
+          "success"
+        ]
+      },
+      "DoctorCallSummaryResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "summary": {
+            "type": "object",
+            "properties": {
+              "totalCalls": {
+                "type": "integer"
+              },
+              "byKind": {
+                "type": "object",
+                "properties": {
+                  "chamber": {
+                    "type": "integer"
+                  },
+                  "group": {
+                    "type": "integer"
+                  },
+                  "parking": {
+                    "type": "integer"
+                  },
+                  "join": {
+                    "type": "integer"
+                  }
+                }
+              },
+              "durationSeconds": {
+                "type": "number"
+              },
+              "slidesShown": {
+                "type": "integer"
+              },
+              "slidesTotal": {
+                "type": "integer"
+              },
+              "samplesProvided": {
+                "type": "integer"
+              },
+              "brands": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "skus": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              "brandTimes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "seconds": {
+                      "type": "number"
+                    }
+                  }
+                }
+              },
+              "skuTimes": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "name": {
+                      "type": "string"
+                    },
+                    "seconds": {
+                      "type": "number"
+                    }
+                  }
+                }
+              },
+              "doctorClass": {
+                "type": "string",
+                "nullable": true
+              },
+              "maxVisits": {
+                "type": "number",
+                "nullable": true
+              },
+              "visitsDone": {
+                "type": "integer"
+              },
+              "remainingVisits": {
+                "type": "number",
+                "nullable": true
+              },
+              "lastVisit": {
+                "type": "string",
+                "nullable": true
+              }
+            }
+          },
+          "calls": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "callId": {
+                  "type": "integer"
+                },
+                "date": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "callType": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "durationSeconds": {
+                  "type": "number"
+                },
+                "slidesShown": {
+                  "type": "integer"
+                },
+                "slidesTotal": {
+                  "type": "integer"
+                },
+                "slidesSeconds": {
+                  "type": "number"
+                },
+                "brands": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "skus": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "feedback": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "feedbackComment": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "sampleProvided": {
+                  "type": "boolean"
+                }
+              }
+            }
+          }
+        },
+        "required": [
+          "success",
+          "summary",
+          "calls"
+        ]
+      },
+      "ForcingContentRow": {
+        "type": "object",
+        "properties": {
+          "team_id": {
+            "type": "integer"
+          },
+          "team_name": {
+            "type": "string"
+          },
+          "specialty_id": {
+            "type": "integer"
+          },
+          "brand_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "brand_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "sku_id": {
+            "type": "number",
+            "nullable": true
+          },
+          "sku_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "url": {
+            "type": "string",
+            "description": "Slide image or video path"
+          },
+          "status": {
+            "type": "string"
+          },
+          "forcing": {
+            "type": "number",
+            "nullable": true,
+            "description": "Play order: priority × 100 + sequence; null sorts last"
+          },
+          "duration": {
+            "type": "string",
+            "nullable": true,
+            "description": "Minimum seconds; first number parsed, default 10"
+          }
+        },
+        "required": [
+          "url"
+        ]
+      },
+      "ForcingContentResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "teamId": {
+            "type": "integer"
+          },
+          "doctorId": {
+            "type": "string"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ForcingContentRow"
+            }
+          }
+        },
+        "required": [
+          "success",
+          "data"
+        ]
+      },
+      "TeamBrandSku": {
+        "type": "object",
+        "properties": {
+          "skuId": {
+            "type": "number",
+            "nullable": true
+          },
+          "skuName": {
+            "type": "string"
+          },
+          "forcing": {
+            "type": "number",
+            "nullable": true
+          },
+          "slideCount": {
+            "type": "integer"
+          },
+          "slideUrls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        }
+      },
+      "TeamBrand": {
+        "type": "object",
+        "properties": {
+          "brandId": {
+            "type": "string",
+            "nullable": true
+          },
+          "brandName": {
+            "type": "string"
+          },
+          "forcing": {
+            "type": "number",
+            "nullable": true
+          },
+          "slideCount": {
+            "type": "integer"
+          },
+          "slideUrls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "skus": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TeamBrandSku"
+            }
+          }
+        }
+      },
+      "MieBrand": {
+        "type": "object",
+        "properties": {
+          "brandId": {
+            "type": "string",
+            "nullable": true
+          },
+          "brandName": {
+            "type": "string"
+          },
+          "skus": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "skuId": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "skuName": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "Specialty": {
+        "type": "object",
+        "properties": {
+          "specialty_id": {
+            "type": "integer"
+          },
+          "specialty_name": {
+            "type": "string"
+          }
+        }
+      },
+      "DailySyncResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "workdayDate": {
+            "type": "string",
+            "format": "date",
+            "description": "Server-authoritative workday"
+          },
+          "teamId": {
+            "type": "integer"
+          },
+          "mieId": {
+            "type": "integer"
+          },
+          "doctors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DoctorDataRow"
+            }
+          },
+          "unplannedDoctors": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DoctorDataRow"
+            }
+          },
+          "teamSkus": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "teamBrands": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/TeamBrand"
+            }
+          },
+          "forcing": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "array",
+              "items": {
+                "$ref": "#/components/schemas/ForcingContentRow"
+              }
+            },
+            "description": "Deck per doctorId"
+          },
+          "imageUrls": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Not read by the app"
+          }
+        },
+        "required": [
+          "success",
+          "workdayDate",
+          "doctors",
+          "unplannedDoctors",
+          "forcing"
+        ]
+      },
+      "MieSalesSummary": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "currentAmount": {
+            "type": "number"
+          },
+          "previousAmount": {
+            "type": "number"
+          },
+          "growthPct": {
+            "type": "number",
+            "nullable": true
+          },
+          "currentQty": {
+            "type": "number"
+          },
+          "targetValue": {
+            "type": "number"
+          },
+          "targetUnit": {
+            "type": "number"
+          },
+          "achievementPct": {
+            "type": "number",
+            "nullable": true
+          },
+          "byBrick": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "brickId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "number"
+                },
+                "soldQty": {
+                  "type": "number"
+                }
+              }
+            }
+          },
+          "bySku": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "itemCode": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "number"
+                },
+                "soldQty": {
+                  "type": "number"
+                }
+              }
+            }
+          },
+          "byCustomer": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "customerId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "number"
+                },
+                "soldQty": {
+                  "type": "number"
+                }
+              }
+            }
+          },
+          "byBrand": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "name": {
+                  "type": "string"
+                },
+                "amount": {
+                  "type": "number"
+                },
+                "soldQty": {
+                  "type": "number"
+                }
+              }
+            }
+          },
+          "previousFrom": {
+            "type": "string",
+            "nullable": true
+          },
+          "previousTo": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "success"
+        ]
+      },
+      "PatientLogRow": {
+        "type": "object",
+        "properties": {
+          "s_no": {
+            "type": "integer"
+          },
+          "client_patient_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "mie_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "mie_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "patient_name": {
+            "type": "string"
+          },
+          "contact_number": {
+            "type": "string",
+            "nullable": true
+          },
+          "city": {
+            "type": "string",
+            "nullable": true
+          },
+          "address": {
+            "type": "string",
+            "nullable": true
+          },
+          "oral_pfs": {
+            "type": "string",
+            "nullable": true,
+            "description": "Oral | PFS"
+          },
+          "strength_month_1": {
+            "type": "string",
+            "nullable": true
+          },
+          "strength_month_2": {
+            "type": "string",
+            "nullable": true
+          },
+          "strength_month_3": {
+            "type": "string",
+            "nullable": true
+          },
+          "indication": {
+            "type": "string",
+            "nullable": true
+          },
+          "dose": {
+            "type": "string",
+            "nullable": true
+          },
+          "doctor_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "doctor": {
+            "type": "string",
+            "nullable": true
+          },
+          "speciality": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "nullable": true
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Absolute URL"
+            }
+          }
+        },
+        "required": [
+          "s_no",
+          "patient_name"
+        ]
+      },
+      "PatientsResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "count": {
+            "type": "integer"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "limit": {
+            "type": "integer"
+          },
+          "hasMore": {
+            "type": "boolean",
+            "description": "Ignored by the app"
+          },
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/PatientLogRow"
+            }
+          }
+        },
+        "required": [
+          "success",
+          "data"
+        ]
+      },
+      "PatientBatchItem": {
+        "type": "object",
+        "properties": {
+          "clientId": {
+            "type": "string",
+            "description": "client_patient_id, or \"s_no:<n>\" for a legacy edit"
+          },
+          "client_patient_id": {
+            "type": "string"
+          },
+          "s_no": {
+            "type": "integer",
+            "description": "Only when editing"
+          },
+          "patient_name": {
+            "type": "string"
+          },
+          "contact_number": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "address": {
+            "type": "string"
+          },
+          "oral_pfs": {
+            "type": "string"
+          },
+          "strength_month_1": {
+            "type": "string"
+          },
+          "strength_month_2": {
+            "type": "string"
+          },
+          "strength_month_3": {
+            "type": "string"
+          },
+          "indication": {
+            "type": "string"
+          },
+          "dose": {
+            "type": "string"
+          },
+          "doctor_id": {
+            "type": "string"
+          },
+          "doctor": {
+            "type": "string"
+          },
+          "speciality": {
+            "type": "string"
+          },
+          "attachments": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "description": "Server storage path"
+            }
+          }
+        },
+        "required": [
+          "clientId",
+          "patient_name"
+        ]
+      },
+      "UploadRequest": {
+        "type": "object",
+        "properties": {
+          "fileName": {
+            "type": "string"
+          },
+          "dataUrl": {
+            "type": "string",
+            "description": "data:<mime>;base64,…"
+          }
+        },
+        "required": [
+          "fileName",
+          "dataUrl"
+        ]
+      },
+      "UploadResponse": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean"
+          },
+          "fileName": {
+            "type": "string"
+          },
+          "storageUrl": {
+            "type": "string",
+            "description": "Relative /uploads/… path — required"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "success",
+          "storageUrl"
+        ]
+      },
+      "CompanyShare": {
+        "type": "object",
+        "properties": {
+          "company": {
+            "type": "string"
+          },
+          "percent": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "company",
+          "percent"
+        ]
+      },
+      "DoctorProfileInput": {
+        "type": "object",
+        "properties": {
+          "clientLocalId": {
+            "type": "string",
+            "description": "Upsert key with owner (DOC-BR-010)"
+          },
+          "clientUpdatedAt": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "pmdcNumber": {
+            "type": "string"
+          },
+          "pmdcStatus": {
+            "type": "string"
+          },
+          "doctorName": {
+            "type": "string"
+          },
+          "fatherName": {
+            "type": "string"
+          },
+          "issueDate": {
+            "type": "string"
+          },
+          "religion": {
+            "type": "string"
+          },
+          "age": {
+            "type": "string"
+          },
+          "gender": {
+            "type": "string"
+          },
+          "cellNo": {
+            "type": "string"
+          },
+          "whatsappNo": {
+            "type": "string"
+          },
+          "digitalComfortLevel": {
+            "type": "string"
+          },
+          "primarySpeciality": {
+            "type": "string"
+          },
+          "secondarySpeciality": {
+            "type": "string"
+          },
+          "practiceLocations": {
+            "type": "string"
+          },
+          "practiceType": {
+            "type": "string"
+          },
+          "innovationAdoption": {
+            "type": "string"
+          },
+          "accessType": {
+            "type": "string"
+          },
+          "preferredInteractionStyle": {
+            "type": "string"
+          },
+          "rxStatus": {
+            "type": "string"
+          },
+          "rxPatterns": {
+            "type": "string"
+          },
+          "pharmacyOwnership": {
+            "type": "string"
+          },
+          "otherCompanyPrescribers": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/CompanyShare"
+            }
+          },
+          "visitingCardUrl": {
+            "type": "string"
+          },
+          "primaryHospital": {
+            "type": "string"
+          },
+          "primaryCity": {
+            "type": "string"
+          },
+          "primarySession": {
+            "type": "string"
+          },
+          "primaryFee": {
+            "type": "string"
+          },
+          "primaryAvgTime": {
+            "type": "string"
+          },
+          "primaryPatientsPerDay": {
+            "type": "string"
+          },
+          "primaryOpdTiming": {
+            "type": "string"
+          },
+          "primaryBestVisitingTime": {
+            "type": "string"
+          },
+          "primaryAppointmentSystem": {
+            "type": "string"
+          },
+          "secondaryHospital": {
+            "type": "string"
+          },
+          "secondaryCity": {
+            "type": "string"
+          },
+          "secondarySession": {
+            "type": "string"
+          },
+          "secondaryFee": {
+            "type": "string"
+          },
+          "secondaryAvgTime": {
+            "type": "string"
+          },
+          "secondaryPatientsPerDay": {
+            "type": "string"
+          },
+          "secondaryOpdTiming": {
+            "type": "string"
+          },
+          "secondaryBestVisitingTime": {
+            "type": "string"
+          },
+          "secondaryAppointmentSystem": {
+            "type": "string"
+          },
+          "practiceSites": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DoctorPracticeSite"
+            },
+            "description": "Every practice location in order; practiceLocations is its length, and primary*/secondary* mirror locations 1 and 2 (DINFO-DATA-003)"
+          }
+        },
+        "required": [
+          "clientLocalId",
+          "clientUpdatedAt",
+          "pmdcNumber"
+        ]
+      },
+      "DoctorProfileBatchItem": {
+        "allOf": [
+          {
+            "$ref": "#/components/schemas/DoctorProfileInput"
+          },
+          {
+            "type": "object",
+            "properties": {
+              "clientId": {
+                "type": "string",
+                "description": "= clientLocalId"
+              }
+            },
+            "required": [
+              "clientId"
+            ]
+          }
+        ]
+      },
+      "DoctorProfileRow": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "clientLocalId": {
+            "type": "string",
+            "nullable": true
+          },
+          "ownerId": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "practiceSites": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DoctorPracticeSite"
+            },
+            "description": "Every practice location in order; absent from a server without this change (DINFO-DATA-003, DINFO-FR-012)"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "description": "Plus every DoctorProfileInput field (string | number | null)"
+      },
+      "AssignedDoctor": {
+        "type": "object",
+        "properties": {
+          "doctorId": {
+            "type": "string"
+          },
+          "pmdcNumber": {
+            "type": "string"
+          },
+          "doctorName": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "specialty": {
+            "type": "string"
+          },
+          "pmdcStatus": {
+            "type": "string"
+          },
+          "fatherName": {
+            "type": "string"
+          },
+          "issueDate": {
+            "type": "string"
+          },
+          "filled": {
+            "type": "boolean"
+          },
+          "profileId": {
+            "type": "string",
+            "nullable": true
+          }
+        },
+        "required": [
+          "doctorId",
+          "pmdcNumber",
+          "filled"
+        ]
+      },
+      "PmdcIdentity": {
+        "type": "object",
+        "properties": {
+          "pmdcNumber": {
+            "type": "string"
+          },
+          "pmdcStatus": {
+            "type": "string"
+          },
+          "doctorName": {
+            "type": "string"
+          },
+          "fatherName": {
+            "type": "string"
+          },
+          "issueDate": {
+            "type": "string"
+          }
+        }
+      },
+      "ProfileMaster": {
+        "type": "object",
+        "properties": {
+          "cities": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "hospitals": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "cityId": {
+                  "type": "integer"
+                }
+              }
+            }
+          },
+          "pharma": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "integer"
+                },
+                "name": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        }
+      },
+      "UsageUpload": {
+        "type": "object",
+        "properties": {
+          "device": {
+            "type": "object",
+            "properties": {
+              "device_id": {
+                "type": "string"
+              },
+              "platform": {
+                "type": "string"
+              },
+              "os_version": {
+                "type": "string"
+              },
+              "app_version": {
+                "type": "string"
+              },
+              "device_model": {
+                "type": "string",
+                "nullable": true
+              }
+            },
+            "required": [
+              "device_id",
+              "platform"
+            ]
+          },
+          "events": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "description": "UUID; server de-duplicates on it"
+                },
+                "type": {
+                  "type": "string",
+                  "description": "app_session | screen | network | sync | login | logout | crash"
+                },
+                "at": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "user_id": {
+                  "type": "string"
+                },
+                "user_name": {
+                  "type": "string"
+                },
+                "display_name": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "mie_id": {
+                  "type": "string",
+                  "nullable": true
+                },
+                "team_id": {
+                  "type": "string",
+                  "nullable": true
+                }
+              },
+              "required": [
+                "id",
+                "type",
+                "at"
+              ],
+              "description": "Plus type-specific fields"
+            },
+            "description": "At most 200 per request (server accepts 500)"
+          }
+        },
+        "required": [
+          "device",
+          "events"
+        ]
+      },
+      "DoctorPracticeSite": {
+        "type": "object",
+        "properties": {
+          "speciality": {
+            "type": "string"
+          },
+          "city": {
+            "type": "string"
+          },
+          "hospital": {
+            "type": "string"
+          },
+          "session": {
+            "type": "string"
+          },
+          "fee": {
+            "type": "string"
+          },
+          "avgTime": {
+            "type": "string"
+          },
+          "patientsPerDay": {
+            "type": "string"
+          },
+          "opdTiming": {
+            "type": "string"
+          },
+          "bestVisitingTime": {
+            "type": "string"
+          },
+          "appointmentSystem": {
+            "type": "string"
+          }
+        },
+        "description": "One practice location (DINFO-DATA-003, backend DOC-BR-019/DOC-BR-022)"
+      }
+    }
+  }
+}

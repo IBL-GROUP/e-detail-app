@@ -26,7 +26,9 @@ const WRITE_THROTTLE_MS = 4000;
 // cache holds responses from before those existed, and because sales is held for
 // 30 minutes those stale rows kept rendering an empty Sales by Brand chart long
 // after the backend started returning brands.
-export const CACHE_BUSTER = 'v3';
+// v4: doctor profiles gained practiceSites, every practice location
+// (DINFO-DATA-003); a v3 cache only holds primary/secondary.
+export const CACHE_BUSTER = 'v4';
 
 export function createFilePersister(): Persister {
   let pending: PersistedClient | null = null;

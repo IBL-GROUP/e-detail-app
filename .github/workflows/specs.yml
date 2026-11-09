@@ -1,0 +1,29 @@
+name: Specs
+
+# Specification validation (specs/CONVENTIONS.md, SFR-FR-001 … SFR-FR-007).
+# Plain Node, no `npm ci`: the validator has no dependencies.
+on:
+  push:
+    branches: [main, sandbox, prod]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    name: Validate specifications
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Validator self-tests
+        run: node --test scripts/specs/validate-specs.test.mjs
+
+      - name: Validate specs, IDs, references, API contract and matrix freshness
+        run: node scripts/specs/validate-specs.mjs --check-matrix
