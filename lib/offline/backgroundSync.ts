@@ -3,6 +3,7 @@ import * as TaskManager from 'expo-task-manager';
 
 import { readStoredSession } from '@/providers/AuthProvider';
 import { runSync } from '@/lib/offline/runSync';
+import { measurePhoneSpeed } from '@/api/sync';
 import { getSyncMeta, todayWorkday } from '@/lib/offline/syncMeta';
 import { flushUsageToDisk, recordUsageEvent } from '@/lib/usage/usageLog';
 import {
@@ -53,8 +54,14 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
     // foreground sync records them (SyncProvider).
     const network = syncNetworkFields();
     let download: SyncDownload | null = null;
-    const logSync = async (outcome: 'success' | 'error', error?: unknown) => {
-      const seconds = Math.round((Date.now() - startedAt) / 1000);
+    // `endedAt`: when the sync itself ended (see SyncProvider's logSync).
+    const logSync = async (
+      outcome: 'success' | 'error',
+      error?: unknown,
+      extra: Record<string, unknown> = {},
+      endedAt = Date.now(),
+    ) => {
+      const seconds = Math.round((endedAt - startedAt) / 1000);
       return recordUsageEvent('sync', user, {
         trigger: 'auto',
         source: 'background',
@@ -66,12 +73,15 @@ TaskManager.defineTask(BACKGROUND_SYNC_TASK, async () => {
         attempts: 1,
         ...(await network),
         ...syncSpeedFields(download),
+        ...extra,
       });
     };
     try {
       await runSync({ mieId: user.mieId, teamId: user.teamId, onDownload: (d) => { download = d; } });
     } catch (error) {
-      await logSync('error', error);
+      // The phone's own internet speed, as the foreground sync logs it.
+      const endedAt = Date.now();
+      await logSync('error', error, await measurePhoneSpeed(), endedAt);
       await flushUsageToDisk();
       throw error;
     }
