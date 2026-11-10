@@ -15,6 +15,7 @@ import { useAuth } from '@/providers/AuthProvider';
 import { loadImageManifest, type DownloadProgress } from '@/lib/offline/imageCache';
 import { getSyncMeta, todayWorkday } from '@/lib/offline/syncMeta';
 import { runSync } from '@/lib/offline/runSync';
+import { measurePhoneSpeed } from '@/api/sync';
 import { seedPlannedFromBulk } from '@/lib/offline/plannedBulk';
 import { flushUsage, recordUsageEvent } from '@/lib/usage/usageLog';
 import {
@@ -181,8 +182,15 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     // data, how fast) or something else.
     const network = syncNetworkFields();
     let download: SyncDownload | null = null;
-    const logSync = (outcome: 'success' | 'error', error?: unknown) => {
-      const seconds = Math.round((Date.now() - startedAt) / 1000);
+    // `endedAt`: when the sync itself ended — a failed one is logged after the
+    // phone speed test below, whose seconds are not the sync's.
+    const logSync = (
+      outcome: 'success' | 'error',
+      error?: unknown,
+      extra: Record<string, unknown> = {},
+      endedAt = Date.now(),
+    ) => {
+      const seconds = Math.round((endedAt - startedAt) / 1000);
       void network.then((net) => recordUsageEvent('sync', user, {
         trigger: MANUAL_SOURCES.has(source) ? 'manual' : 'auto',
         source,
@@ -194,6 +202,7 @@ export function SyncProvider({ children }: { children: ReactNode }) {
         attempts,
         ...net,
         ...syncSpeedFields(download),
+        ...extra,
       }));
     };
 
@@ -238,7 +247,11 @@ export function SyncProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       console.warn('[sync] failed', error);
       setStatus('error');
-      logSync('error', error);
+      // Was it the phone's internet or the server? The sync's own speed is 0
+      // when the server was too slow to send anything, so time a download that
+      // never waits on the server's database, and log it with the failure.
+      const endedAt = Date.now();
+      void measurePhoneSpeed().then((probe) => logSync('error', error, probe, endedAt));
     } finally {
       setProgress(null);
       runningRef.current = false;
