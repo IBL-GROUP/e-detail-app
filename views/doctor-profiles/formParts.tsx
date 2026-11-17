@@ -374,37 +374,41 @@ export function RecordBanner({
 }
 
 /**
- * One practice location on Step 4 (DINFO-FR-011): a card titled
- * "Location <n>" that collapses to its header, which then shows the
- * location's hospital and speciality. Marked red while it has errors.
+ * One practice location on Step 4 (DINFO-FR-011): a card titled with the
+ * location's name (DINFO-BR-014: Primary, Secondary, Location 3 …) that
+ * collapses to its header, which then shows the location's hospital and
+ * speciality. Marked red while it has errors. `dense` narrows the padding for
+ * a card that shares its row with another (PairedColumns).
  */
 export function LocationCard({
-  index,
+  label,
   summary,
   open,
   onToggle,
   hasErrors = false,
+  dense = false,
   children,
 }: {
-  index: number;
+  label: string;
   summary: string;
   open: boolean;
   onToggle: () => void;
   hasErrors?: boolean;
+  dense?: boolean;
   children: ReactNode;
 }) {
   return (
-    <View style={[styles.section, hasErrors && styles.sectionInvalid]}>
+    <View style={[styles.section, dense && styles.sectionDense, hasErrors && styles.sectionInvalid]}>
       <Pressable
         onPress={onToggle}
         style={({ pressed }) => [styles.locationHead, pressed && styles.locationHeadPressed]}
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
-        accessibilityLabel={`Location ${index + 1}${summary ? `, ${summary}` : ''}`}
+        accessibilityLabel={`${label}${summary ? `, ${summary}` : ''}`}
       >
         <Ionicons name="business-outline" size={16} color={Colors.primary} />
         <View style={styles.locationTitleWrap}>
-          <Text style={styles.sectionTitle}>Location {index + 1}</Text>
+          <Text style={styles.sectionTitle} numberOfLines={1}>{label}</Text>
           {!open && summary ? (
             <Text style={styles.locationSummary} numberOfLines={1}>
               {summary}
@@ -415,6 +419,32 @@ export function LocationCard({
         <Ionicons name={open ? 'chevron-up' : 'chevron-down'} size={18} color={Colors.textMuted} />
       </Pressable>
       {open ? children : null}
+    </View>
+  );
+}
+
+/**
+ * Items two per row on every screen size, phones included (DINFO-FR-011:
+ * Primary beside Secondary, Location 3 beside Location 4, …). A lone last item
+ * keeps the width of one column, so the columns stay aligned. Each row's items
+ * keep their own height.
+ */
+export function PairedColumns({ children }: { children: ReactNode }) {
+  const items = Children.toArray(children).filter(Boolean);
+  const rows: ReactNode[][] = [];
+  for (let index = 0; index < items.length; index += 2) rows.push(items.slice(index, index + 2));
+  return (
+    <View style={styles.stack}>
+      {rows.map((pair, row) => (
+        <View key={row} style={styles.pairRow}>
+          {pair.map((child, column) => (
+            <View key={column} style={styles.rowCell}>
+              {child}
+            </View>
+          ))}
+          {pair.length < 2 ? <View style={styles.rowCell} /> : null}
+        </View>
+      ))}
     </View>
   );
 }
@@ -487,6 +517,13 @@ const styles = StyleSheet.create({
   rowCell: {
     flex: 1,
     minWidth: 0,
+  },
+  // Two location cards side by side: a tighter gap than field rows, so each
+  // card keeps as much width as a phone allows.
+  pairRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
   },
   input: formStyles.input,
   inputReadOnly: {

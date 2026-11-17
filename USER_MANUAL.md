@@ -138,6 +138,12 @@ Tap **Doctor Info** to profile the doctors assigned to you. The top of the scree
 - Tap **Save Profile** on the last step. A saved doctor shows **Captured**, and you can open it to read the profile. A profile cannot be changed after it is uploaded.
 - It works **without internet**. The doctor shows **Waiting to sync** until the profile uploads. Until then you can open it and tap **Discard Profile** to remove it and start again.
 - If you leave the form part-way, what you typed is kept on the phone for next time.
+- Once uploaded, your managers check each profile in the admin console, and the doctor shows one of these tags:
+  - **Pending review** (amber) — uploaded and waiting for your manager. This is not the same as **Pending**, which means you have not profiled the doctor yet.
+  - **Approved** (green) — your manager accepted the profile. If they left a comment, it shows on the profile.
+  - **Rejected** (red) — your manager found a problem. Open the doctor to see who rejected it, the reason and their comment. You **do not** capture or change it again: your manager's team corrects it in the console, and it then goes back to **Pending review**.
+- Every uploaded profile counts towards your total (for example **12/40**), whether it is pending review, approved or rejected.
+- If the app has not yet been updated on the server side, an uploaded doctor simply shows **Captured**.
 
 ---
 

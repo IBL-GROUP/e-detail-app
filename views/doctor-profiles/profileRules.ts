@@ -53,8 +53,9 @@ export const FALLBACK_CITIES = [
 export const RELIGIONS = ['Muslim', 'Non-Muslim'];
 export const GENDERS = ['Male', 'Female'];
 export const DIGITAL_COMFORT_LEVELS = ['Low', 'Medium', 'High'];
-/** No. of Practice Locations: a typed whole number, starting at 1, no upper limit (DINFO-BR-009). */
+/** No. of Practice Locations: a typed whole number from 1 to 10, starting at 1 (DINFO-BR-009). */
 export const MIN_PRACTICE_LOCATIONS = 1;
+export const MAX_PRACTICE_LOCATIONS = 10;
 export const DEFAULT_PRACTICE_LOCATIONS = '1';
 export const PRACTICE_TYPES = ['Private', 'Hospital', 'Both'];
 export const ADOPTION_LEVELS = ['Early Adopter', 'Mid Adopter', 'Late Adopter'];
@@ -244,13 +245,31 @@ export function formatPkMobile(raw: string): string {
   return digits.slice(0, 11);
 }
 
-/** A practice-location count that is a whole number of at least 1 (DINFO-BR-009). */
+/** A practice-location count that is a whole number from 1 to 10 (DINFO-BR-009). */
 export const isValidPracticeLocations = (value: string) =>
-  /^\d+$/.test(value) && Number(value) >= MIN_PRACTICE_LOCATIONS;
+  /^\d+$/.test(value) &&
+  Number(value) >= MIN_PRACTICE_LOCATIONS &&
+  Number(value) <= MAX_PRACTICE_LOCATIONS;
+
+/**
+ * DINFO-BR-009: a count above 10 from a draft saved before the cap becomes 10.
+ * The locations beyond 10 stay in the draft, hidden (DINFO-BR-011).
+ */
+export const capPracticeLocations = (value: string) =>
+  /^\d+$/.test(value) && Number(value) > MAX_PRACTICE_LOCATIONS
+    ? String(MAX_PRACTICE_LOCATIONS)
+    : value;
+
+/**
+ * DINFO-BR-014: a practice location's name — "Primary", "Secondary", then
+ * "Location 3", "Location 4", … (index is 0-based).
+ */
+export const siteLabel = (index: number) =>
+  index === 0 ? 'Primary' : index === 1 ? 'Secondary' : `Location ${index + 1}`;
 
 /**
  * N, the number of locations Step 4 shows (DINFO-FR-011). At least 1, so
- * Location 1 always exists, also while Step 3 holds an invalid count.
+ * the Primary location always exists, also while Step 3 holds an invalid count.
  */
 export const practiceLocationCount = (practiceLocations: string) =>
   isValidPracticeLocations(practiceLocations) ? Number(practiceLocations) : 1;
@@ -349,7 +368,7 @@ export function validateProfile(form: DoctorProfileFields): Record<string, strin
 
   // DINFO-BR-009
   if (isRequired(form.practiceLocations) && !isValidPracticeLocations(form.practiceLocations)) {
-    errors.practiceLocations = `Enter a number of at least ${MIN_PRACTICE_LOCATIONS}.`;
+    errors.practiceLocations = `Enter a number from ${MIN_PRACTICE_LOCATIONS} to ${MAX_PRACTICE_LOCATIONS}.`;
   }
   if (!isNonNegativeNumeric(form.age || '')) errors.age = 'Enter a valid non-negative age.';
   if (!isRequired(form.cellNo)) errors.cellNo = REQUIRED_MSG;
@@ -410,7 +429,7 @@ export function siteClashes(sites: PracticeSite[]): Record<string, string> {
       seen.set(key, index);
     } else {
       errors[siteKey(index, 'speciality')] =
-        `${site.speciality} is already entered for ${site.hospital.trim()} at Location ${first + 1}.`;
+        `${site.speciality} is already entered for ${site.hospital.trim()} (${siteLabel(first)}).`;
     }
   });
   return errors;

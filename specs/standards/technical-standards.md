@@ -49,11 +49,12 @@ ADR changes them.
 | PLAT-NFR-005 | Every build runs `scripts/bump-version.js`. It increments the patch version and Android `versionCode`, taking the highest across this checkout and the `sandbox`/`prod` branches (local and origin). EAS auto-increment is off. | Implemented | `scripts/bump-version.js`, `package.json`, `eas.json` | PLAT-TC-002 |
 | PLAT-NFR-006 | The API base URL comes from `EXPO_PUBLIC_*` variables. The `sandbox` EAS profile sets its own URL and `EXPO_PUBLIC_BUILD_ENV=sandbox`. | Implemented | `config/api-base-url.ts`, `eas.json`, `.env.example` | PLAT-TC-002 |
 | PLAT-NFR-007 | `npm run lint` passes with no errors before merge. | Implemented | `eslint.config.js` | PLAT-TC-001 |
-| PLAT-NFR-008 | The UI is light-themed whatever the device setting, and fonts load before the first paint. | Implemented | `app/_layout.tsx`, `lib/typography.ts` | PLAT-TC-002 |
+| PLAT-NFR-008 | The UI is light-themed whatever the device setting. The first paint waits for the Inter fonts to load, but a font load that fails or times out (on web, `expo-font` gives up after 6 s) never blocks the app: it renders at once, with the system font standing in until Inter arrives. Added 2026-11-10; before, a font timeout left the app on the loading spinner indefinitely. | Implemented | `app/_layout.tsx`, `lib/typography.ts` | PLAT-TC-002, PLAT-TC-004 |
 
 | ID | Scenario | Expected | Verifies |
 |---|---|---|---|
 | PLAT-TC-001 | Run `npm run lint`. | Exit code 0. | PLAT-NFR-007 |
+| PLAT-TC-004 | On web, open the app with the font files blocked (DevTools › Network › block `*.ttf`) or throttled to "Slow 3G". | After at most about 6 s the sign-in screen renders in the system font; no endless spinner. With throttling only, text switches to Inter once the files arrive. | PLAT-NFR-008 |
 | PLAT-TC-002 | Run `npm run build:sandbox`. | `app.json` version and versionCode incremented; APK installs over the previous build; app uses the sandbox API; light theme on a dark-mode phone. | PLAT-NFR-001, PLAT-NFR-005, PLAT-NFR-006, PLAT-NFR-008 |
 | PLAT-TC-003 | Change a cached response type without bumping `CACHE_BUSTER`, and review. | Rejected in code review (checklist in the PR template). | PLAT-NFR-004 |
 
@@ -65,3 +66,4 @@ ADR changes them.
 | PLAT-GAP-002 | `npx tsc --noEmit` currently fails locally with 10 "Cannot find module 'expo-file-system/legacy'" errors, because `expo-file-system` is declared in `package.json` but missing from the installed `node_modules`. A clean `npm ci` probably fixes it; confirm, then add type-checking to CI. | Open |
 | PLAT-GAP-003 | The iOS `buildNumber` is bumped from the local value only, not taken as the highest across branches like the Android `versionCode`. | Open |
 | PLAT-GAP-004 | `README.md` still contained the create-expo-app boilerplate (now prefixed with project and spec pointers). `scripts/reset-project.js` and the `reset-project` script are template leftovers that would wipe `app/`. | Open |
+| PLAT-GAP-005 | On web, when a font is not confirmed within 6 s, `@expo/vector-icons` (Ionicons) awaits `Font.loadAsync` without a catch. The development error overlay then shows "Uncaught Error: 6000ms timeout exceeded". The app keeps working (PLAT-NFR-008) and the icons appear once their font arrives. The overlay is library behaviour and not fixable in app code short of patching the package. Why fonts take more than 6 s in the reported case (2026-11-10, browser) is not yet known. Candidates: a slow first development bundle, a background tab, or a font request failing; check DevTools › Network for the `.ttf` requests. | Open |

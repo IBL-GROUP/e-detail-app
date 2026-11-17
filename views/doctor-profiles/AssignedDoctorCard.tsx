@@ -5,6 +5,7 @@ import { Tag } from '@/components/tag';
 import { Colors } from '@/constants/theme';
 import { initialsOf } from '@/lib/initials';
 import type { AssignedDoctor } from '@/api/doctorProfiles';
+import { approvalTagFor } from './ApprovalStatus';
 import { formatDoctorName } from './profileRules';
 
 /** Thin rule between inline facts. */
@@ -19,7 +20,8 @@ function Divider() {
  * 14px icons, the shared Tag — with the profile state on the right: Pending
  * (amber) until profiled, Draft while a half-filled form is on the device,
  * Captured (green) after, and "Waiting to sync" while the profile is still
- * only on this device — Searle's PENDING / DRAFT / FILLED.
+ * only on this device — Searle's PENDING / DRAFT / FILLED. A profile on the
+ * server shows its approval status instead of Captured (DINFO-FR-013).
  */
 export function AssignedDoctorCard({
   doctor,
@@ -34,6 +36,9 @@ export function AssignedDoctorCard({
   const name = formatDoctorName(doctor.doctorName) || doctor.pmdcNumber;
   const city = String(doctor.city ?? '').trim();
   const specialty = String(doctor.specialty ?? '').trim();
+  // DINFO-FR-013: only a profile on the server has an approval status; with
+  // none (older server) it stays "Captured".
+  const approvalTag = doctor.filled && !doctor.isPending ? approvalTagFor(doctor.approvalStatus) : null;
 
   return (
     <Pressable
@@ -71,7 +76,9 @@ export function AssignedDoctorCard({
       </View>
 
       <View style={styles.right}>
-        {doctor.filled ? (
+        {approvalTag ? (
+          <Tag label={approvalTag.label} icon={approvalTag.icon} tone={approvalTag.tone} />
+        ) : doctor.filled ? (
           <Tag
             label={doctor.isPending ? 'Waiting to sync' : 'Captured'}
             icon={doctor.isPending ? 'cloud-upload-outline' : 'checkmark-circle-outline'}

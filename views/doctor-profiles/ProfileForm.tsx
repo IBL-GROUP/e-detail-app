@@ -33,6 +33,7 @@ import {
   FormStepper,
   HospitalField,
   LocationCard,
+  PairedColumns,
   ReadOnlyValue,
   RecordBanner,
   SectionCard,
@@ -64,6 +65,7 @@ import {
   SESSION_TIMES,
   STEPS,
   STEP_FIELDS,
+  capPracticeLocations,
   filledShares,
   formatDoctorName,
   formatPkMobile,
@@ -72,6 +74,7 @@ import {
   siteIndexOf,
   siteClashes,
   siteKey,
+  siteLabel,
   sitesOf,
   sitesPayload,
   validateProfile,
@@ -82,8 +85,11 @@ import {
 /** Digits only, for the numeric boxes. */
 const numeric = (value: string, max: number) => value.replace(/[^0-9]/g, '').slice(0, max);
 
-/** A DINFO-BR-013 speciality-clash message (see siteClashes). */
-const CLASH_MESSAGE = / is already entered for .* at Location \d+\.$/;
+/**
+ * A DINFO-BR-013 speciality-clash message (see siteClashes), ending with the
+ * earlier location's name (DINFO-BR-014).
+ */
+const CLASH_MESSAGE = / is already entered for .* \((Primary|Secondary|Location \d+)\)\.$/;
 
 /** The PMDC register's half of the profile. */
 type Identity = Pick<
@@ -271,8 +277,11 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
           visitingCardUrl: String(draft.form.visitingCardUrl ?? '').startsWith('blob:')
             ? ''
             : draft.form.visitingCardUrl,
-          // DINFO-BR-009: drafts saved before the default existed start at 1 too.
-          practiceLocations: draft.form.practiceLocations || DEFAULT_PRACTICE_LOCATIONS,
+          // DINFO-BR-009: drafts saved before the default existed start at 1
+          // too, and one saved with more than 10 opens with 10.
+          practiceLocations: capPracticeLocations(
+            draft.form.practiceLocations || DEFAULT_PRACTICE_LOCATIONS,
+          ),
           // DINFO-DATA-004: a draft from before practiceSites existed keeps its
           // primary/secondary practice as Locations 1 and 2.
           practiceSites: sitesOf(draft.form),
@@ -411,7 +420,8 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
     }
   };
 
-  // DINFO-BR-009: typed, digits only, leading zeros dropped, no upper limit.
+  // DINFO-BR-009: typed, digits only, leading zeros dropped, 1 to 10
+  // (anything else is caught by validateProfile).
   // DINFO-BR-011: lowering it only hides locations; nothing is cleared.
   const setPracticeLocations = (raw: string) => {
     const value = raw.replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
@@ -660,7 +670,7 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
   const siteFields = (index: number) => {
     const site = sites[index];
     const key = (field: SiteField) => siteKey(index, field);
-    const sheetTitle = (label: string) => `Location ${index + 1} · ${label}`;
+    const sheetTitle = (label: string) => `${siteLabel(index)} · ${label}`;
 
     return [
       <Field key="speciality" name={key('speciality')} label="Speciality" required error={err(key('speciality'))}>
@@ -719,40 +729,40 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
           invalid={Boolean(err(key('session')))}
         />
       </Field>,
-      <FieldRow key="numbers">
-        <Field name={key('fee')} label="Fee / Patient" required inRow error={err(key('fee'))}>
-          <TextField
-            value={site.fee}
-            onChangeText={(next) => updateSite(index, { fee: numeric(next, 7) })}
-            placeholder="Numbers only"
-            keyboardType="number-pad"
-            invalid={Boolean(err(key('fee')))}
-          />
-        </Field>
-        <Field name={key('avgTime')} label="Avg Time / Patient" required inRow error={err(key('avgTime'))}>
-          <TextField
-            value={site.avgTime}
-            onChangeText={(next) => updateSite(index, { avgTime: numeric(next, 3) })}
-            placeholder="Minutes (numbers only)"
-            keyboardType="number-pad"
-            invalid={Boolean(err(key('avgTime')))}
-          />
-        </Field>
-        <Field
-          name={key('patientsPerDay')}
-          label="No# Patient/Day"
-          required
-          inRow
-          error={err(key('patientsPerDay'))}
-        >
-          <TextField
-            value={site.patientsPerDay}
-            onChangeText={(next) => updateSite(index, { patientsPerDay: numeric(next, 4) })}
-            keyboardType="number-pad"
-            invalid={Boolean(err(key('patientsPerDay')))}
-          />
-        </Field>
-      </FieldRow>,
+      // Stacked, not a FieldRow: each card is one of two columns
+      // (DINFO-FR-011), too narrow for three numbers side by side.
+      <Field key="fee" name={key('fee')} label="Fee / Patient" required error={err(key('fee'))}>
+        <TextField
+          value={site.fee}
+          onChangeText={(next) => updateSite(index, { fee: numeric(next, 7) })}
+          placeholder="Numbers only"
+          keyboardType="number-pad"
+          invalid={Boolean(err(key('fee')))}
+        />
+      </Field>,
+      <Field key="avgTime" name={key('avgTime')} label="Avg Time / Patient" required error={err(key('avgTime'))}>
+        <TextField
+          value={site.avgTime}
+          onChangeText={(next) => updateSite(index, { avgTime: numeric(next, 3) })}
+          placeholder="Minutes (numbers only)"
+          keyboardType="number-pad"
+          invalid={Boolean(err(key('avgTime')))}
+        />
+      </Field>,
+      <Field
+        key="patientsPerDay"
+        name={key('patientsPerDay')}
+        label="No# Patient/Day"
+        required
+        error={err(key('patientsPerDay'))}
+      >
+        <TextField
+          value={site.patientsPerDay}
+          onChangeText={(next) => updateSite(index, { patientsPerDay: numeric(next, 4) })}
+          keyboardType="number-pad"
+          invalid={Boolean(err(key('patientsPerDay')))}
+        />
+      </Field>,
       <Field key="opdTiming" name={key('opdTiming')} label="OPD Timing" required error={err(key('opdTiming'))}>
         <SelectField
           options={OPD_TIMINGS}
@@ -940,8 +950,9 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
               <TextField
                 value={form.practiceLocations}
                 onChangeText={setPracticeLocations}
-                placeholder="1 or more"
+                placeholder="1 to 10"
                 keyboardType="number-pad"
+                maxLength={2}
                 invalid={Boolean(err('practiceLocations'))}
               />
             </Field>
@@ -963,19 +974,25 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
         );
 
       case 'practice':
-        // DINFO-FR-011: one card per location, stacked on every screen size.
-        return sites.map((_, index) => (
-          <LocationCard
-            key={index}
-            index={index}
-            summary={siteSummary(index)}
-            open={openSites.has(index)}
-            onToggle={() => toggleSite(index)}
-            hasErrors={siteHasErrors(index)}
-          >
-            {siteFields(index)}
-          </LocationCard>
-        ));
+        // DINFO-FR-011: one card per location, two side by side on every
+        // screen size (Primary | Secondary, Location 3 | Location 4, …).
+        return (
+          <PairedColumns>
+            {sites.map((_, index) => (
+              <LocationCard
+                key={index}
+                label={siteLabel(index)}
+                summary={siteSummary(index)}
+                open={openSites.has(index)}
+                onToggle={() => toggleSite(index)}
+                hasErrors={siteHasErrors(index)}
+                dense
+              >
+                {siteFields(index)}
+              </LocationCard>
+            ))}
+          </PairedColumns>
+        );
 
       case 'commercial':
         return (
@@ -1145,7 +1162,7 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
               {sites.map((site, index) => (
                 <DetailRow
                   key={index}
-                  label={`Location ${index + 1}`}
+                  label={siteLabel(index)}
                   value={[
                     site.speciality,
                     [site.hospital.trim(), site.city].filter(Boolean).join(', '),

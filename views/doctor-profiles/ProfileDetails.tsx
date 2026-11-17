@@ -2,11 +2,18 @@ import { useMemo, useState, type ReactNode } from 'react';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-import type { CompanyShare, DoctorProfileRow, PracticeSite } from '@/api/doctorProfiles';
+import type {
+  CompanyShare,
+  DoctorProfileApproval,
+  DoctorProfileRow,
+  PracticeSite,
+} from '@/api/doctorProfiles';
+import { Tag } from '@/components/tag';
 import { Colors } from '@/constants/theme';
 import { ImageViewerModal } from '@/views/patients/ImageViewerModal';
+import { ApprovalNotice, approvalTagFor } from './ApprovalStatus';
 import { DetailRow } from './formParts';
-import { filledShares, formatAvgTime, formatDoctorName, sitesOf } from './profileRules';
+import { filledShares, formatAvgTime, formatDoctorName, siteLabel, sitesOf } from './profileRules';
 
 type Section = { key: string; label: string; render: () => ReactNode };
 
@@ -17,7 +24,17 @@ type Section = { key: string; label: string; render: () => ReactNode };
  * in a card. In this app's colours. Locations lists every practice location
  * (DINFO-FR-012), where Searle had one tab per clinic.
  */
-export function ProfileDetails({ profile }: { profile: DoctorProfileRow }) {
+export function ProfileDetails({
+  profile,
+  approval,
+}: {
+  profile: DoctorProfileRow;
+  /**
+   * The server's approval decision (DINFO-FR-014). Left out for a profile
+   * still waiting to upload, and missing from older servers: no tag then.
+   */
+  approval?: DoctorProfileApproval | null;
+}) {
   const [activeKey, setActiveKey] = useState('profile');
   const [viewerOpen, setViewerOpen] = useState(false);
   const card = String(profile.visitingCardUrl ?? '').trim();
@@ -81,7 +98,7 @@ export function ProfileDetails({ profile }: { profile: DoctorProfileRow }) {
             {sites.map((site, index) => (
               <DetailRow
                 key={index}
-                label={sites.length > 1 ? `Speciality · Location ${index + 1}` : 'Speciality'}
+                label={sites.length > 1 ? `Speciality · ${siteLabel(index)}` : 'Speciality'}
                 value={site.speciality}
               />
             ))}
@@ -116,7 +133,7 @@ export function ProfileDetails({ profile }: { profile: DoctorProfileRow }) {
         render: () =>
           sites.map((site, index) => (
             <View key={index} style={index > 0 ? styles.locationBlockSpaced : undefined}>
-              <Text style={styles.locationTitle}>Location {index + 1}</Text>
+              <Text style={styles.locationTitle}>{siteLabel(index)}</Text>
               {clinicRows(site)}
             </View>
           )),
@@ -126,6 +143,7 @@ export function ProfileDetails({ profile }: { profile: DoctorProfileRow }) {
   }, [profile, sites, card]);
 
   const active = sections.find((section) => section.key === activeKey) ?? sections[0];
+  const approvalTag = approvalTagFor(approval?.status);
 
   return (
     <View style={styles.wrap}>
@@ -145,8 +163,14 @@ export function ProfileDetails({ profile }: { profile: DoctorProfileRow }) {
               <Text style={styles.chipOutlineText}>{String(profile.pmdcStatus)}</Text>
             </View>
           ) : null}
+          {approvalTag ? (
+            <Tag label={approvalTag.label} icon={approvalTag.icon} tone={approvalTag.tone} />
+          ) : null}
         </View>
       </View>
+
+      {/* Rejected: who, why, and that the console corrects it (DINFO-FR-014, DINFO-BR-015). */}
+      <ApprovalNotice approval={approval} />
 
       {/* Segmented control */}
       <View style={styles.segments}>

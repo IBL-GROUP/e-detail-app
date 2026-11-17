@@ -157,7 +157,8 @@ export default function DoctorProfileScreen({ pmdc }: { pmdc: string }) {
               ) : null}
             </View>
           ) : null}
-          <ProfileDetails profile={profile} />
+          {/* A profile still on this phone has no server decision yet (DINFO-DATA-005). */}
+          <ProfileDetails profile={profile} approval={profile.isPending ? null : profile.approval} />
           {profile.isPending && profile.localId ? (
             <AppButton
               label="Discard Profile"
