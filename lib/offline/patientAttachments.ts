@@ -88,7 +88,7 @@ export async function persistPickedImage(uri: string): Promise<string> {
  *                            silently blocked every web upload.
  *  - a file: URI (native) -> read straight off disk as base64.
  */
-async function toDataUrl(uri: string): Promise<string> {
+export async function toDataUrl(uri: string): Promise<string> {
   const value = String(uri ?? '');
   if (value.startsWith('data:')) return value;
 

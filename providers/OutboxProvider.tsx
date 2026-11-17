@@ -25,21 +25,41 @@ import {
   subscribePatientOutbox,
   subscribePatientsSynced,
 } from '@/lib/offline/patientOutbox';
+import {
+  flushDoctorProfileOutbox,
+  getPendingDoctorProfileCount,
+  initDoctorProfileOutbox,
+  subscribeDoctorProfileOutbox,
+  subscribeDoctorProfilesSynced,
+} from '@/lib/offline/doctorProfileOutbox';
 /** Prefix of every patient-list query key (one per rep). */
 const PATIENTS_QUERY_KEY = ['patients'] as const;
+/**
+ * Query families a synced doctor profile changes: the rep's profiles, the
+ * captured state on the assigned list, and the hospital list (a hospital typed
+ * on the form joins the master once the profile lands, DOC-BR-012).
+ */
+const DOCTOR_PROFILE_QUERY_KEYS = [
+  ['doctor-profiles'],
+  ['doctor-profile-assigned'],
+  ['doctor-profile-master'],
+] as const;
 
 interface OutboxContextValue {
   /** Number of call activities still waiting to sync. */
   pendingCount: number;
   /** Number of recorded patients still waiting to sync. */
   pendingPatientCount: number;
-  /** Manually trigger a flush of both queues (e.g. a "Sync now" button). */
+  /** Number of captured doctor profiles still waiting to sync. */
+  pendingProfileCount: number;
+  /** Manually trigger a flush of every queue (e.g. a "Sync now" button). */
   flushNow: () => Promise<void>;
 }
 
 const OutboxContext = createContext<OutboxContextValue>({
   pendingCount: 0,
   pendingPatientCount: 0,
+  pendingProfileCount: 0,
   flushNow: async () => {},
 });
 
@@ -65,6 +85,7 @@ const CALL_DERIVED_QUERY_KEYS = [
 export function OutboxProvider({ children }: { children: ReactNode }) {
   const [pendingCount, setPendingCount] = useState(0);
   const [pendingPatientCount, setPendingPatientCount] = useState(0);
+  const [pendingProfileCount, setPendingProfileCount] = useState(0);
   const queryClient = useQueryClient();
 
   const refreshCount = useCallback(async () => {
@@ -78,11 +99,18 @@ export function OutboxProvider({ children }: { children: ReactNode }) {
     } catch {
       // ignore
     }
+    try {
+      setPendingProfileCount(await getPendingDoctorProfileCount());
+    } catch {
+      // ignore
+    }
   }, []);
 
   // The list refetch on success is the subscribePatientsSynced effect below —
   // it also covers the flush a save starts on its own.
   const flushPatients = useCallback(() => flushPatientOutbox(), []);
+  // Same for doctor profiles — the subscribeDoctorProfilesSynced effect refetches.
+  const flushProfiles = useCallback(() => flushDoctorProfileOutbox(), []);
 
   // Initialize the DBs, do a first flush of both queues, and keep the pending
   // counts live.
@@ -91,10 +119,17 @@ export function OutboxProvider({ children }: { children: ReactNode }) {
     (async () => {
       await initOutbox();
       await initPatientOutbox();
+      // Never let the doctor-profile queue stop the call and patient flushes below.
+      try {
+        await initDoctorProfileOutbox();
+      } catch (error) {
+        console.warn('[doctor-profiles] outbox init failed', error);
+      }
       if (!mounted) return;
       await refreshCount();
       void flushOutbox().then(refreshCount);
       void flushPatients().then(refreshCount);
+      void flushProfiles().then(refreshCount);
     })();
     const unsubscribe = subscribeOutbox(() => {
       void refreshCount();
@@ -102,12 +137,16 @@ export function OutboxProvider({ children }: { children: ReactNode }) {
     const unsubscribePatients = subscribePatientOutbox(() => {
       void refreshCount();
     });
+    const unsubscribeProfiles = subscribeDoctorProfileOutbox(() => {
+      void refreshCount();
+    });
     return () => {
       mounted = false;
       unsubscribe();
       unsubscribePatients();
+      unsubscribeProfiles();
     };
-  }, [refreshCount, flushPatients]);
+  }, [refreshCount, flushPatients, flushProfiles]);
 
   // A queued call reached the server — drop the caches built from it so the
   // screen the rep is looking at refetches instead of showing pre-call figures.
@@ -131,6 +170,15 @@ export function OutboxProvider({ children }: { children: ReactNode }) {
     });
   }, [queryClient]);
 
+  // Doctor profiles reached the server — refetch every list built from them.
+  useEffect(() => {
+    return subscribeDoctorProfilesSynced(() => {
+      for (const queryKey of DOCTOR_PROFILE_QUERY_KEYS) {
+        void queryClient.invalidateQueries({ queryKey });
+      }
+    });
+  }, [queryClient]);
+
   // Flush whenever connectivity is (re)gained.
   useEffect(() => {
     let wasConnected = true;
@@ -139,11 +187,12 @@ export function OutboxProvider({ children }: { children: ReactNode }) {
       if (!wasConnected && connected) {
         void flushOutbox().then(refreshCount);
         void flushPatients().then(refreshCount);
+        void flushProfiles().then(refreshCount);
       }
       wasConnected = connected;
     });
     return unsubscribe;
-  }, [refreshCount, flushPatients]);
+  }, [refreshCount, flushPatients, flushProfiles]);
 
   // Flush once a server token is in hand — after a sign-in, and in particular
   // when an offline session upgrades to an online one. Calls queued while the
@@ -155,17 +204,19 @@ export function OutboxProvider({ children }: { children: ReactNode }) {
     if (!hasServerToken) return;
     void flushOutbox().then(refreshCount);
     void flushPatients().then(refreshCount);
-  }, [hasServerToken, refreshCount, flushPatients]);
+    void flushProfiles().then(refreshCount);
+  }, [hasServerToken, refreshCount, flushPatients, flushProfiles]);
 
   const flushNow = useCallback(async () => {
     await flushOutbox();
     await flushPatients();
+    await flushProfiles();
     await refreshCount();
-  }, [refreshCount, flushPatients]);
+  }, [refreshCount, flushPatients, flushProfiles]);
 
   const value = useMemo<OutboxContextValue>(
-    () => ({ pendingCount, pendingPatientCount, flushNow }),
-    [pendingCount, pendingPatientCount, flushNow],
+    () => ({ pendingCount, pendingPatientCount, pendingProfileCount, flushNow }),
+    [pendingCount, pendingPatientCount, pendingProfileCount, flushNow],
   );
 
   return <OutboxContext.Provider value={value}>{children}</OutboxContext.Provider>;

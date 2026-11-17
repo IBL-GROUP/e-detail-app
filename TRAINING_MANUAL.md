@@ -75,7 +75,7 @@ Check all of this **before** Lesson 1. Do not start without it.
 3. Tap **Sign In**.
 4. Wait for **"Preparing today's calls…"** to finish. The first time, this downloads all your doctors and slides onto the phone. It only happens once.
 5. Look at the Home screen. Find your **name** at the top, and **today's date** under it.
-6. Count the six cards: Doctors, Portfolio, Content, e-Detailing, Analytics, Patients.
+6. Count the cards: Doctors, Portfolio, Content, e-Detailing, Analytics, Patients, Doctor Info. (You see only the cards you have been given access to.)
 7. Look at the four buttons at the bottom: **Home, e-Detailing, Analytics, Settings**.
 8. Tap each of the four bottom buttons once, then come back to Home.
 

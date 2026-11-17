@@ -73,6 +73,15 @@ const NAV_CARDS: NavCard[] = [
     href: '/patients',
     section: 'PATIENTS',
   },
+  {
+    // Doctor Information Gathering — a profile of each assigned doctor
+    // (doctors_info), captured once. Needs DOCTOR_INFO.VIEW in the console.
+    label: 'Doctor Info',
+    description: 'Profile your assigned doctors',
+    iconName: 'id-card-outline',
+    href: '/doctor-profiles',
+    section: 'DOCTOR_INFO',
+  },
 ];
 
 /**

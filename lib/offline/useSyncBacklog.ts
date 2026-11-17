@@ -2,7 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 
 import type { CallTrackingInput } from '@/api/calls';
 import { useLocalPatients } from '@/api/patients';
+import { useAllLocalDoctorProfiles } from '@/api/doctorProfiles';
 import type { LocalCall } from './callLedger';
+import type { LocalDoctorProfile } from './doctorProfileOutbox';
 import { getQueuedCallIds, subscribeOutbox } from './outbox';
 import type { LocalPatient } from './patientOutbox';
 import { useLocalCalls } from './useLocalCalls';
@@ -29,13 +31,15 @@ export interface SyncBacklog {
   rejectedCalls: number;
   /** Queued patients (not yet accepted by the server). */
   pendingPatients: LocalPatient[];
+  /** Queued doctor profiles (not yet accepted by the server). */
+  pendingProfiles: LocalDoctorProfile[];
   /**
    * Every call this device holds that the server has NOT accepted — pending
    * and rejected alike — newest first. A call made online uploads immediately
    * and never appears here; this list is what offline work leaves behind.
    */
   unsyncedCalls: BacklogCall[];
-  /** unsyncedCalls + pendingPatients — nothing left to sync when this is 0. */
+  /** unsyncedCalls + pendingPatients + pendingProfiles — nothing left to sync when this is 0. */
   unsyncedTotal: number;
 }
 
@@ -89,6 +93,7 @@ export function useSyncBacklog(mieId?: string): SyncBacklog {
   const local = useLocalCalls();
   const queued = useQueuedCallIds();
   const patients = useLocalPatients();
+  const profiles = useAllLocalDoctorProfiles();
 
   return useMemo(() => {
     const calls: BacklogCall[] = local
@@ -109,13 +114,15 @@ export function useSyncBacklog(mieId?: string): SyncBacklog {
 
     const unsyncedCalls = calls.filter((c) => c.state !== 'synced');
     const pendingPatients = patients.filter((p) => p.syncedAt == null);
+    const pendingProfiles = profiles.filter((p) => p.syncedAt == null);
 
     return {
       pendingCalls: unsyncedCalls.filter((c) => c.state === 'pending').length,
       rejectedCalls: unsyncedCalls.filter((c) => c.state === 'rejected').length,
       pendingPatients,
+      pendingProfiles,
       unsyncedCalls,
-      unsyncedTotal: unsyncedCalls.length + pendingPatients.length,
+      unsyncedTotal: unsyncedCalls.length + pendingPatients.length + pendingProfiles.length,
     };
-  }, [local, queued, patients, mieId]);
+  }, [local, queued, patients, profiles, mieId]);
 }

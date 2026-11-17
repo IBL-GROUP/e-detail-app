@@ -82,16 +82,23 @@ function AuthGate() {
 }
 
 export default function RootLayout() {
-  const [fontsLoaded] = useFonts(AppFonts);
+  const [fontsLoaded, fontError] = useFonts(AppFonts);
 
   // Register the unattended overnight sync (best-effort; OS-scheduled).
   useEffect(() => {
     void registerBackgroundSync();
   }, []);
 
+  useEffect(() => {
+    if (fontError) console.warn('[fonts] Inter not confirmed; rendering with the system font', fontError);
+  }, [fontError]);
+
   // Hold the first paint until Inter is ready, so text doesn't reflow from the
-  // system font a frame later.
-  if (!fontsLoaded) {
+  // system font a frame later. PLAT-NFR-008: a font that fails or times out
+  // (web gives up after 6 s) must not hold the app on this spinner for good —
+  // render anyway; the @font-face rule is in place, so Inter still applies
+  // once its file arrives.
+  if (!fontsLoaded && !fontError) {
     return (
       <View style={styles.loadingShell}>
         <ActivityIndicator size="large" color={Colors.primary} />
