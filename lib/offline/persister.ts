@@ -28,7 +28,9 @@ const WRITE_THROTTLE_MS = 4000;
 // after the backend started returning brands.
 // v4: doctor profiles gained practiceSites, every practice location
 // (DINFO-DATA-003); a v3 cache only holds primary/secondary.
-export const CACHE_BUSTER = 'v4';
+// v5: assigned doctors and profiles gained their approval status, reason and
+// note (DINFO-DATA-005); a v4 cache would show "Captured" until refetched.
+export const CACHE_BUSTER = 'v5';
 
 export function createFilePersister(): Persister {
   let pending: PersistedClient | null = null;

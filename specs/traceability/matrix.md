@@ -16,10 +16,10 @@ How to read it: [specs/CONVENTIONS.md](../CONVENTIONS.md#traceability).
 
 ## Summary
 
-- Requirements: 180
-- Implemented: 158
+- Requirements: 186
+- Implemented: 164
 - Unconfirmed: 22
-- With any verification (test or test case): 180
+- With any verification (test or test case): 186
 - With an automated test: 9
 
 ## Requirements
@@ -123,11 +123,15 @@ How to read it: [specs/CONVENTIONS.md](../CONVENTIONS.md#traceability).
 | DINFO-BR-011 | Implemented | Changing N: raising it adds empty locations at the end. Lowering it hides the locations b… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/ProfileForm.tsx`, `views/doctor-profiles/profileRules.ts` | DINFO-TC-009 |
 | DINFO-BR-012 | Implemented | Every location offers the full speciality list. Choosing a speciality at one location nev… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/ProfileForm.tsx` | DINFO-TC-009 |
 | DINFO-BR-013 | Implemented | The same doctor cannot have the same speciality at the same hospital twice. Two locations… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/profileRules.ts`, `views/doctor-profiles/ProfileForm.tsx` | DINFO-TC-009 |
+| DINFO-BR-014 | Implemented | Practice locations are named by position: the 1st is "Primary", the 2nd is "Secondary", a… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/profileRules.ts`, `views/doctor-profiles/formParts.tsx`, `views/doctor-profiles/ProfileForm.tsx`, `views/doctor-profiles/ProfileDetails.tsx` | DINFO-TC-009, DINFO-TC-011 |
+| DINFO-BR-015 | Implemented | A rejected profile cannot be edited or captured again by the rep: DINFO-FR-002 (captured … | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/DoctorProfileScreen.tsx`, `views/doctor-profiles/ApprovalStatus.tsx` | DINFO-TC-013 |
+| DINFO-BR-016 | Implemented | Coverage is unchanged by approval: the "{filled}/{assigned} filled" count, the progress b… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/index.tsx`, `api/doctorProfiles.ts` | DINFO-TC-012 |
 | DINFO-DATA-001 | Implemented | DoctorProfileInput = all profile fields (camelCase strings, plus otherCompanyPrescribers:… | [doctor-info.md](../domains/doctor-info.md) | `api/doctorProfiles.ts`, `lib/offline/doctorProfileOutbox.ts` | DINFO-TC-006 |
 | DINFO-DATA-002 | Implemented | Queue: SQLite table doctor_profile_outbox (native; web: IndexedDB e-detail-doctor-profile… | [doctor-info.md](../domains/doctor-info.md) | `lib/offline/doctorProfileOutboxStore.ts`, `lib/offline/doctorProfileOutboxStore.web.ts`, `lib/offline/doctorProfileDrafts.ts` | DINFO-TC-005 |
 | DINFO-DATA-003 | Implemented | The profile payload adds practiceSites: an ordered array of N objects {speciality, city, … | [doctor-info.md](../domains/doctor-info.md) | `api/doctorProfiles.ts`, `views/doctor-profiles/profileRules.ts`, `views/doctor-profiles/ProfileForm.tsx`, `lib/offline/persister.ts` | DINFO-TC-009 |
 | DINFO-DATA-004 | Implemented | Old data is never dropped: a draft saved before this change has its primary/secondary fie… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/profileRules.ts`, `views/doctor-profiles/ProfileForm.tsx`, `lib/offline/doctorProfileOutbox.ts` | DINFO-TC-010 |
-| DINFO-FR-001 | Implemented | The Doctor Info list shows the rep's assigned doctors that have a PMDC number. It has: a … | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/index.tsx`, `views/doctor-profiles/AssignedDoctorCard.tsx`, `api/doctorProfiles.ts` | DINFO-TC-001 |
+| DINFO-DATA-005 | Implemented | Approval fields read from the server (backend DOC-DATA-006). Each GET /doctor-profiles/as… | [doctor-info.md](../domains/doctor-info.md) | `api/doctorProfiles.ts`, `views/doctor-profiles/ApprovalStatus.tsx`, `lib/offline/persister.ts` | DINFO-TC-014 |
+| DINFO-FR-001 | Implemented | The Doctor Info list shows the rep's assigned doctors that have a PMDC number. It has: a … | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/index.tsx`, `views/doctor-profiles/AssignedDoctorCard.tsx`, `api/doctorProfiles.ts` | DINFO-TC-001, DINFO-TC-012 |
 | DINFO-FR-002 | Implemented | Tapping a pending doctor opens the six-step form: PMDC Verification, Personal, Profession… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/DoctorProfileScreen.tsx`, `views/doctor-profiles/ProfileForm.tsx`, `views/doctor-profiles/ProfileDetails.tsx`, `views/doctor-profiles/profileRules.ts` | DINFO-TC-002 |
 | DINFO-FR-003 | Implemented | Step 1 shows the PMDC identity read-only, taken from the assigned list. If any identity f… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/ProfileForm.tsx`, `api/doctorProfiles.ts` | DINFO-TC-002 |
 | DINFO-FR-004 | Implemented | A visiting-card photo is required. On native it is taken with the camera only, with permi… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/VisitingCardPicker.tsx` | DINFO-TC-003 |
@@ -137,8 +141,10 @@ How to read it: [specs/CONVENTIONS.md](../CONVENTIONS.md#traceability).
 | DINFO-FR-008 | Implemented | A profile still waiting to upload shows "Saved on this phone…". If the last upload failed… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/DoctorProfileScreen.tsx` | DINFO-TC-006 |
 | DINFO-FR-009 | Implemented | Choosing or typing a hospital not in the master list for that city adds it with POST /doc… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/formParts.tsx`, `api/doctorProfiles.ts` | DINFO-TC-007 |
 | DINFO-FR-010 | Implemented | Opening Doctor Info caches the city, hospital and company master lists (GET /doctor-profi… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/index.tsx`, `api/doctorProfiles.ts`, `views/doctor-profiles/profileRules.ts` | DINFO-TC-007 |
-| DINFO-FR-011 | Implemented | Step 4 (Practice Locations) shows one card per practice location, "Location 1" to "Locati… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/ProfileForm.tsx`, `views/doctor-profiles/formParts.tsx`, `views/doctor-profiles/profileRules.ts` | DINFO-TC-009 |
-| DINFO-FR-012 | Implemented | Review & Submit and the read-only profile view list every practice location in order. A p… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/ProfileForm.tsx`, `views/doctor-profiles/ProfileDetails.tsx`, `views/doctor-profiles/profileRules.ts` | DINFO-TC-009 |
+| DINFO-FR-011 | Implemented | Step 4 (Practice Locations) shows one card per practice location, named per DINFO-BR-014 … | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/ProfileForm.tsx`, `views/doctor-profiles/formParts.tsx`, `views/doctor-profiles/profileRules.ts` | DINFO-TC-009 |
+| DINFO-FR-012 | Implemented | Review & Submit and the read-only profile view list every practice location in order, nam… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/ProfileForm.tsx`, `views/doctor-profiles/ProfileDetails.tsx`, `views/doctor-profiles/profileRules.ts` | DINFO-TC-009 |
+| DINFO-FR-013 | Implemented | A doctor whose profile is on the server (filled and not waiting to sync) is tagged on the… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/AssignedDoctorCard.tsx`, `views/doctor-profiles/ApprovalStatus.tsx`, `api/doctorProfiles.ts` | DINFO-TC-012, DINFO-TC-014 |
+| DINFO-FR-014 | Implemented | The read-only profile shows the same approval tag in its header, next to the PMDC chips. … | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/ProfileDetails.tsx`, `views/doctor-profiles/DoctorProfileScreen.tsx`, `views/doctor-profiles/ApprovalStatus.tsx` | DINFO-TC-013, DINFO-TC-014 |
 | DINFO-SEC-001 | Implemented | Screens show only profiles whose ownerId is the signed-in rep. | [doctor-info.md](../domains/doctor-info.md) | `api/doctorProfiles.ts` | DINFO-TC-008 |
 | PAT-API-001 | Implemented | Retry policy is the same as for calls. A per-item 4xx counts as a rejection and the row i… | [patients.md](../domains/patients.md) | `lib/offline/patientOutbox.ts` | PAT-TC-005 |
 | PAT-BR-001 | Implemented | Required: patient name, address, city, contact (complete), Oral/PFS, doctor, speciality, … | [patients.md](../domains/patients.md) | `views/patients/AddPatientModal.tsx` | PAT-TC-002 |
@@ -168,7 +174,7 @@ How to read it: [specs/CONVENTIONS.md](../CONVENTIONS.md#traceability).
 | PLAT-NFR-005 | Implemented | Every build runs scripts/bump-version.js. It increments the patch version and Android ver… | [technical-standards.md](../standards/technical-standards.md) | `scripts/bump-version.js`, `package.json`, `eas.json` | PLAT-TC-002 |
 | PLAT-NFR-006 | Implemented | The API base URL comes from EXPO_PUBLIC_ variables. The sandbox EAS profile sets its own … | [technical-standards.md](../standards/technical-standards.md) | `config/api-base-url.ts`, `eas.json`, `.env.example` | PLAT-TC-002 |
 | PLAT-NFR-007 | Implemented | npm run lint passes with no errors before merge. | [technical-standards.md](../standards/technical-standards.md) | `eslint.config.js` | PLAT-TC-001 |
-| PLAT-NFR-008 | Implemented | The UI is light-themed whatever the device setting, and fonts load before the first paint. | [technical-standards.md](../standards/technical-standards.md) | `app/_layout.tsx`, `lib/typography.ts` | PLAT-TC-002 |
+| PLAT-NFR-008 | Implemented | The UI is light-themed whatever the device setting. The first paint waits for the Inter f… | [technical-standards.md](../standards/technical-standards.md) | `app/_layout.tsx`, `lib/typography.ts` | PLAT-TC-002, PLAT-TC-004 |
 | SECR-SEC-001 | Implemented | Every API route requires Authorization: Bearer <token>, except /auth/login and the two sh… | [security.md](../standards/security.md) | `config/axios.ts`, `config/app-sync.ts` | SECR-TC-001 |
 | SECR-SEC-002 | Implemented | Device permissions (location while in use, camera, photos) are requested at the moment of… | [security.md](../standards/security.md) | `app.json`, `lib/location/captureArrival.ts`, `views/patients/AttachmentPicker.tsx`, `views/doctor-profiles/VisitingCardPicker.tsx` | SECR-TC-002 |
 | SECR-SEC-003 | Implemented | Secrets that must persist on the device (a queued password change) go in SecureStore, nev… | [security.md](../standards/security.md) | `lib/auth/pendingPasswordChange.ts` | AUTH-TC-010 |
@@ -209,7 +215,7 @@ How to read it: [specs/CONVENTIONS.md](../CONVENTIONS.md#traceability).
 
 ## Known gaps and open questions
 
-60 recorded, 59 open. Each needs a decision from its owner. Resolve it in its spec, then regenerate.
+61 recorded, 60 open. Each needs a decision from its owner. Resolve it in its spec, then regenerate.
 
 | Gap | Status | Observation | Spec |
 |---|---|---|---|
@@ -245,7 +251,7 @@ How to read it: [specs/CONVENTIONS.md](../CONVENTIONS.md#traceability).
 | DINFO-GAP-004 | Open | Phone formats differ between domains: profiles store 03XXXXXXXXX, patients store +92-3XX-XXXXXXX. Pasting a +92… number into a profile fiel… | [doctor-info.md](../domains/doctor-info.md) |
 | DINFO-GAP-005 | Open | The server's assigned/filled meta is ignored and the counts are computed on the device. The search placeholder omits specialty. Usage track… | [doctor-info.md](../domains/doctor-info.md) |
 | DINFO-GAP-006 | Open | Profile routes have no permission gate (see PERM-GAP-001). | [doctor-info.md](../domains/doctor-info.md) |
-| DINFO-GAP-007 | Accepted | With no upper limit on practice locations, a mistyped large N (for example 50) builds 50 location cards, all required. The product owner ch… | [doctor-info.md](../domains/doctor-info.md) |
+| DINFO-GAP-007 | Resolved | With no upper limit on practice locations, a mistyped large N (for example 50) builds 50 location cards, all required. The product owner ch… | [doctor-info.md](../domains/doctor-info.md) |
 | PAT-GAP-001 | Open | On web, a queue write that exceeds storage quota is swallowed, so the save "succeeds" but nothing is stored. Photos are stored uncompressed… | [patients.md](../domains/patients.md) |
 | PAT-GAP-002 | Open | The patient queue has no owner column. On a shared phone, the previous rep's pending patients appear in the next rep's list and upload unde… | [patients.md](../domains/patients.md) |
 | PAT-GAP-003 | Open | A row removed after 5 rejections disappears silently, and its local photos are not deleted. | [patients.md](../domains/patients.md) |
@@ -259,6 +265,7 @@ How to read it: [specs/CONVENTIONS.md](../CONVENTIONS.md#traceability).
 | PLAT-GAP-002 | Open | npx tsc --noEmit currently fails locally with 10 "Cannot find module 'expo-file-system/legacy'" errors, because expo-file-system is declare… | [technical-standards.md](../standards/technical-standards.md) |
 | PLAT-GAP-003 | Open | The iOS buildNumber is bumped from the local value only, not taken as the highest across branches like the Android versionCode. | [technical-standards.md](../standards/technical-standards.md) |
 | PLAT-GAP-004 | Open | README.md still contained the create-expo-app boilerplate (now prefixed with project and spec pointers). scripts/reset-project.js and the r… | [technical-standards.md](../standards/technical-standards.md) |
+| PLAT-GAP-005 | Open | On web, when a font is not confirmed within 6 s, @expo/vector-icons (Ionicons) awaits Font.loadAsync without a catch. The development error… | [technical-standards.md](../standards/technical-standards.md) |
 | SECR-GAP-001 | Open | Cleartext HTTP is allowed. On Android usesCleartextTraffic is true, on iOS NSAllowsArbitraryLoads is true, and the sandbox API URL is http:… | [security.md](../standards/security.md) |
 | SECR-GAP-002 | Open | .env is committed to git; only .env.local is ignored. It holds internal API addresses and the offline sync key. These are public in the bun… | [security.md](../standards/security.md) |
 | SECR-GAP-003 | Open | Every request URL and response status is logged with console.log in all builds, including production (config/axios.ts). Query strings carry… | [security.md](../standards/security.md) |
@@ -291,8 +298,11 @@ IDs owned by another repository, with how often specs and source comments cite t
 | DOC-BR-020 | 1 |
 | DOC-BR-021 | 1 |
 | DOC-BR-022 | 1 |
+| DOC-BR-024 | 3 |
 | DOC-DATA-001 | 2 |
+| DOC-DATA-006 | 3 |
 | DOC-FR-009 | 3 |
 | DOC-FR-010 | 4 |
 | DOC-FR-012 | 2 |
 | DOC-FR-017 | 4 |
+| DOC-FR-020 | 3 |

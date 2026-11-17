@@ -107,6 +107,22 @@ export interface DoctorProfileInput extends DoctorProfileFields {
   clientUpdatedAt: string;
 }
 
+/** A profile's approval status, decided by the rep's managers in the console (DOC-FR-020). */
+export type ApprovalStatus = 'PENDING' | 'APPROVED' | 'REJECTED';
+
+/** The approval decision on a stored profile (DINFO-DATA-005, backend DOC-DATA-006). */
+export interface DoctorProfileApproval {
+  status: ApprovalStatus;
+  /** Set when rejected: one of the console's fixed reasons. */
+  reason: string | null;
+  /** The manager's comment (at most 500 characters), on a rejection or an approval. */
+  note: string | null;
+  decidedBy: string | null;
+  decidedByName: string | null;
+  /** ISO timestamp. */
+  decidedAt: string | null;
+}
+
 /**
  * A stored profile as the server returns it. Numeric columns may come back as
  * numbers, so every scalar is read through `String()` when shown.
@@ -122,6 +138,8 @@ export type DoctorProfileRow = {
   createdBy?: string;
   createdAt?: string;
   updatedAt?: string;
+  /** Absent from servers without the approval change: show no approval tag (DINFO-DATA-005). */
+  approval?: DoctorProfileApproval | null;
 };
 
 /** A profile as the screens render it: stored or device-only. */
@@ -148,6 +166,15 @@ export interface AssignedDoctor {
   profileId: string | null;
   /** Captured on this device and not uploaded yet. */
   isPending?: boolean;
+  /**
+   * The profile's approval status (DINFO-DATA-005): null when the doctor has
+   * no profile on the server; absent from servers without the approval change.
+   */
+  approvalStatus?: ApprovalStatus | null;
+  /** Why it was rejected (set when REJECTED). */
+  approvalReason?: string | null;
+  /** The manager's comment, on a rejection or an approval. */
+  approvalNote?: string | null;
 }
 
 export interface PmdcIdentity {
@@ -374,11 +401,15 @@ export const useAssignedDoctors = (mieId?: string, userId?: string) => {
     const rows = (query.data ?? []).map((row) => {
       const entry = localByPmdc.get(pmdcKey(row.pmdcNumber));
       if (!entry) return row;
+      const isPending = entry.syncedAt == null;
       return {
         ...row,
         filled: true,
         profileId: row.profileId ?? `local:${entry.clientLocalId}`,
-        isPending: entry.syncedAt == null,
+        isPending,
+        // DINFO-DATA-005: a profile still only on this device has no server
+        // status yet — it reads "Waiting to sync", never a stale decision.
+        ...(isPending ? { approvalStatus: null, approvalReason: null, approvalNote: null } : null),
       };
     });
 

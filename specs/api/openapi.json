@@ -1435,7 +1435,9 @@
         "x-requirements": [
           "DINFO-FR-001",
           "DINFO-DATA-003",
-          "DINFO-FR-012"
+          "DINFO-FR-012",
+          "DINFO-FR-014",
+          "DINFO-DATA-005"
         ],
         "security": [
           {
@@ -1484,7 +1486,9 @@
         "operationId": "getAssignedDoctors",
         "summary": "Assigned doctors with filled flag",
         "x-requirements": [
-          "DINFO-FR-001"
+          "DINFO-FR-001",
+          "DINFO-FR-013",
+          "DINFO-DATA-005"
         ],
         "security": [
           {
@@ -3727,12 +3731,61 @@
               "$ref": "#/components/schemas/DoctorPracticeSite"
             },
             "description": "Every practice location in order; absent from a server without this change (DINFO-DATA-003, DINFO-FR-012)"
+          },
+          "approval": {
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/DoctorProfileApproval"
+              }
+            ],
+            "description": "Absent from a server without the approval change; the app then shows no approval tag (DINFO-DATA-005, DINFO-FR-014)"
           }
         },
         "required": [
           "id"
         ],
         "description": "Plus every DoctorProfileInput field (string | number | null)"
+      },
+      "DoctorProfileApproval": {
+        "type": "object",
+        "description": "A profile's approval decision, made by the rep's managers in the admin console (backend DOC-FR-020, DOC-BR-024, DOC-DATA-006; app DINFO-DATA-005)",
+        "properties": {
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "APPROVED",
+              "REJECTED"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "nullable": true,
+            "description": "Set when REJECTED: one of \"PMDC number does not match the doctor\", \"Practice details incomplete\", \"Duplicate of an existing profile\", \"Contact numbers look wrong\", \"Other\""
+          },
+          "note": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 500,
+            "description": "The manager's comment"
+          },
+          "decidedBy": {
+            "type": "string",
+            "nullable": true
+          },
+          "decidedByName": {
+            "type": "string",
+            "nullable": true
+          },
+          "decidedAt": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "required": [
+          "status"
+        ]
       },
       "AssignedDoctor": {
         "type": "object",
@@ -3767,6 +3820,27 @@
           "profileId": {
             "type": "string",
             "nullable": true
+          },
+          "approvalStatus": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "APPROVED",
+              "REJECTED"
+            ],
+            "nullable": true,
+            "description": "Approval status of the doctor's profile; null when the doctor has no profile on the server. Absent from a server without the approval change (DINFO-DATA-005, backend DOC-DATA-006)"
+          },
+          "approvalReason": {
+            "type": "string",
+            "nullable": true,
+            "description": "Set when REJECTED: one of \"PMDC number does not match the doctor\", \"Practice details incomplete\", \"Duplicate of an existing profile\", \"Contact numbers look wrong\", \"Other\""
+          },
+          "approvalNote": {
+            "type": "string",
+            "nullable": true,
+            "maxLength": 500,
+            "description": "The manager's comment; may be set when REJECTED or APPROVED"
           }
         },
         "required": [
