@@ -14,7 +14,7 @@ type ApprovalTagSpec = { label: string; icon: keyof typeof Ionicons.glyphMap; to
  */
 const APPROVAL_TAGS: Record<ApprovalStatus, ApprovalTagSpec> = {
   APPROVED: { label: 'Approved', icon: 'checkmark-circle-outline', tone: 'success' },
-  PENDING: { label: 'Pending review', icon: 'time-outline', tone: 'warning' },
+  PENDING: { label: 'Pending Review', icon: 'time-outline', tone: 'warning' },
   REJECTED: { label: 'Rejected', icon: 'close-circle-outline', tone: 'danger' },
 };
 

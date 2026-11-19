@@ -19,7 +19,7 @@ type Section = { key: string; label: string; render: () => ReactNode };
 
 /**
  * A captured profile, read-only — the Searle app's Doctor Details screen: a
- * hero card with the doctor's name and PMDC, a segmented control
+ * hero card with the doctor's name (the only place it is shown, DINFO-FR-016) and PMDC, a segmented control
  * (Profile · Specialty · Insights · Locations), and the chosen section's rows
  * in a card. In this app's colours. Locations lists every practice location
  * (DINFO-FR-012), where Searle had one tab per clinic.
@@ -73,7 +73,7 @@ export function ProfileDetails({
             <DetailRow label="Cell No" value={profile.cellNo} />
             <DetailRow label="WhatsApp" value={profile.whatsappNo} />
             <DetailRow label="Digital Comfort" value={profile.digitalComfortLevel} />
-            <DetailRow label="Captured by" value={profile.createdBy} />
+            <DetailRow label="Captured By" value={profile.createdBy} />
             <View style={styles.cardBlock}>
               <Text style={styles.cardLabel}>Visiting Card</Text>
               {card ? (
@@ -103,7 +103,7 @@ export function ProfileDetails({
               />
             ))}
             <DetailRow label="Practice Locations" value={profile.practiceLocations} />
-            <DetailRow label="Practice Type" value={profile.practiceType} />
+            <DetailRow label="Practice Type Location" value={profile.practiceType} />
           </>
         ),
       },
@@ -149,7 +149,6 @@ export function ProfileDetails({
     <View style={styles.wrap}>
       {/* Hero */}
       <View style={styles.hero}>
-        <Text style={styles.eyebrow}>Doctor Profile</Text>
         <Text style={styles.heroName}>{formatDoctorName(profile.doctorName) || '—'}</Text>
         <View style={styles.chipRow}>
           {profile.pmdcNumber ? (
@@ -217,13 +216,6 @@ const styles = StyleSheet.create({
     padding: 16,
     gap: 6,
   },
-  eyebrow: {
-    color: 'rgba(255,255,255,0.7)',
-    fontSize: 11,
-    fontWeight: '700',
-    letterSpacing: 0.8,
-    textTransform: 'uppercase',
-  },
   heroName: {
     color: Colors.textOnDark,
     fontSize: 22,
@@ -288,7 +280,6 @@ const styles = StyleSheet.create({
     fontWeight: '800',
     color: Colors.textMuted,
     letterSpacing: 0.3,
-    textTransform: 'uppercase',
   },
   segmentTextActive: {
     color: Colors.textOnDark,
@@ -312,8 +303,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: Colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
   },
   cardMissing: {
     fontSize: 14,

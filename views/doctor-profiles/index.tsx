@@ -101,7 +101,7 @@ export default function DoctorProfiles() {
             <Text style={styles.stickyTitle}>Select Doctor</Text>
             <View style={styles.stickyCount}>
               <Text style={styles.stickyCountText}>
-                {filled}/{assigned} filled
+                {filled}/{assigned} Filled
               </Text>
             </View>
           </View>
@@ -260,7 +260,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
     color: Colors.secondary,
-    textTransform: 'uppercase',
     letterSpacing: 0.4,
   },
   progressTrack: {

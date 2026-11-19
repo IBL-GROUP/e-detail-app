@@ -158,30 +158,36 @@ export function ChoiceChips({
   onChange,
   invalid = false,
   compact = false,
+  disabledOptions = [],
 }: {
   options: readonly string[];
   value: string;
   onChange: (value: string) => void;
   invalid?: boolean;
   compact?: boolean;
+  /** Options shown greyed out that cannot be tapped (e.g. DINFO-BR-017). */
+  disabledOptions?: readonly string[];
 }) {
   return (
     <View style={styles.chipRow}>
       {options.map((option) => {
         const active = value === option;
+        const disabled = disabledOptions.includes(option);
         return (
           <Pressable
             key={option}
             onPress={() => {
-              if (!active) onChange(option);
+              if (!active && !disabled) onChange(option);
             }}
+            disabled={disabled}
             accessibilityRole="radio"
-            accessibilityState={{ selected: active }}
+            accessibilityState={{ selected: active, disabled }}
             style={[
               styles.chip,
               compact && styles.chipCompact,
               active && styles.chipActive,
-              invalid && !value && styles.chipInvalid,
+              (invalid && !value) || (invalid && active && disabled) ? styles.chipInvalid : null,
+              disabled && !active && styles.chipDisabled,
             ]}
           >
             <Text
@@ -241,12 +247,9 @@ export function SelectField({
 }
 
 /**
- * Hospital: picked from the city's hospitals, or added — as in the Searle
- * app, the rep types the name in the search box and taps "Add “…”".
- *
- * An added name is saved with the profile and the server adds it to the
- * city's hospital list when the profile lands (DOC-BR-012), so it also works
- * offline. Cities are never added: they come from the master list only.
+ * Hospital: picked from the city's hospitals, with "Other" as the last option
+ * (DINFO-FR-015). The rep cannot type a new name. Cities come from the master
+ * list only.
  */
 export function HospitalField({
   hospitals,
@@ -273,12 +276,12 @@ export function HospitalField({
       options={hospitals}
       value={value}
       onChange={(picked) => onChange(picked.trim().replace(/\s+/g, ' '))}
-      placeholder="Select or add hospital"
-      title={title ?? `Hospitals in ${city}`}
-      searchPlaceholder="Search or type a new name…"
-      emptyText="No matching options — type a name above, then tap Add as new."
+      placeholder="Select hospital"
+      title={title ?? `Hospitals In ${city}`}
+      searchPlaceholder="Search hospital…"
+      emptyText="No matching hospital — choose Other."
       invalid={invalid}
-      allowCustom
+      searchable
     />
   );
 }
@@ -317,7 +320,7 @@ export function FormStepper({ titles, current }: { titles: readonly string[]; cu
     <View style={styles.stepper}>
       <View style={styles.stepperRow}>
         <Text style={styles.stepCount}>
-          Step {Math.min(current + 1, total)} of {total}
+          Step {Math.min(current + 1, total)} Of {total}
         </Text>
         <Text style={styles.stepTitle} numberOfLines={2}>
           {titles[current] ?? ''}
@@ -332,7 +335,8 @@ export function FormStepper({ titles, current }: { titles: readonly string[]; cu
 
 /**
  * Searle's FormRecordBanner: which doctor the rep is completing, always in
- * view, with the step's hint beside it.
+ * view, with the step's hint beside it. Without `name` it shows the code only
+ * (unused today; kept for screens that already show the name).
  */
 export function RecordBanner({
   name,
@@ -350,10 +354,12 @@ export function RecordBanner({
     <View style={styles.banner} accessibilityRole="header">
       <View style={[styles.bannerRow, Boolean(desc) && styles.bannerRowWithDesc]}>
         <View style={[styles.bannerIdentity, Boolean(desc) && styles.bannerIdentityFlex]}>
-          <Text style={styles.bannerName} numberOfLines={2}>
-            {name?.trim() || '—'}
-          </Text>
-          <View style={styles.bannerCodeRow}>
+          {name?.trim() ? (
+            <Text style={styles.bannerName} numberOfLines={2}>
+              {name.trim()}
+            </Text>
+          ) : null}
+          <View style={[styles.bannerCodeRow, !name?.trim() && styles.bannerCodeRowAlone]}>
             <Text style={styles.bannerCodeLabel}>{codeLabel}</Text>
             <Text style={styles.bannerCode} numberOfLines={1}>
               {code?.trim() || '—'}
@@ -425,9 +431,9 @@ export function LocationCard({
 
 /**
  * Items two per row on every screen size, phones included (DINFO-FR-011:
- * Primary beside Secondary, Location 3 beside Location 4, …). A lone last item
- * keeps the width of one column, so the columns stay aligned. Each row's items
- * keep their own height.
+ * Primary beside Secondary, Location 3 beside Location 4), each half the
+ * width. A lone last item (N = 1, 3 or 5) takes the full width. Each row's
+ * items keep their own height.
  */
 export function PairedColumns({ children }: { children: ReactNode }) {
   const items = Children.toArray(children).filter(Boolean);
@@ -442,7 +448,6 @@ export function PairedColumns({ children }: { children: ReactNode }) {
               {child}
             </View>
           ))}
-          {pair.length < 2 ? <View style={styles.rowCell} /> : null}
         </View>
       ))}
     </View>
@@ -568,6 +573,9 @@ const styles = StyleSheet.create({
     minHeight: 40,
     paddingHorizontal: 10,
   },
+  chipDisabled: {
+    opacity: 0.4,
+  },
   chipActive: {
     backgroundColor: Colors.primary,
   },
@@ -625,8 +633,7 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '800',
     color: Colors.primary,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
+    letterSpacing: 0.3,
   },
   stepTitle: {
     flex: 1,
@@ -679,6 +686,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 8,
     marginTop: 4,
+  },
+  bannerCodeRowAlone: {
+    marginTop: 0,
   },
   bannerCodeLabel: {
     color: 'rgba(255,255,255,0.72)',
@@ -746,8 +756,6 @@ const styles = StyleSheet.create({
     fontSize: 12,
     fontWeight: '700',
     color: Colors.textMuted,
-    textTransform: 'uppercase',
-    letterSpacing: 0.6,
   },
   detailValue: {
     flex: 1.6,

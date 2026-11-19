@@ -56,7 +56,9 @@ import {
   GENDERS,
   INTERACTION_STYLES,
   OPD_TIMINGS,
+  OTHER_HOSPITAL,
   PHARMACY_OWNERSHIP,
+  PRACTICE_LOCATION_OPTIONS,
   PMDC_STEP_HINT,
   PRACTICE_TYPES,
   RELIGIONS,
@@ -65,6 +67,9 @@ import {
   SESSION_TIMES,
   STEPS,
   STEP_FIELDS,
+  BOTH_NEEDS_LOCATIONS_MSG,
+  canChooseBoth,
+  PRACTICE_TYPE_BOTH,
   capPracticeLocations,
   filledShares,
   formatDoctorName,
@@ -185,11 +190,9 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
   }, [masterQuery.data?.cities]);
 
   /**
-   * The city's hospitals from the master list, plus any hospital the rep has
-   * added on this form for that city — so one added for one location is
-   * offered for another location in the same city too (Searle keeps it in the
-   * session list the same way). The server adds it to the master when the
-   * profile lands (DOC-BR-012).
+   * DINFO-FR-015: the city's hospitals from the master list, sorted, then
+   * "Other" last. A name typed into an older draft (before typing was removed)
+   * is kept in the list so that location's choice still shows.
    */
   const hospitalsFor = (cityName: string) => {
     const lower = cityName.trim().toLowerCase();
@@ -206,11 +209,13 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
       .filter((site) => site.city.trim().toLowerCase() === lower)
       .map((site) => site.hospital.trim())
       .filter(Boolean);
-    const merged = [...names];
-    for (const name of added) {
+    const isOther = (name: string) => name.trim().toLowerCase() === OTHER_HOSPITAL.toLowerCase();
+    const merged: string[] = [];
+    for (const name of [...names, ...added]) {
+      if (isOther(name)) continue;
       if (!merged.some((entry) => entry.toLowerCase() === name.toLowerCase())) merged.push(name);
     }
-    return merged.sort((left, right) => left.localeCompare(right));
+    return [...merged.sort((left, right) => left.localeCompare(right)), OTHER_HOSPITAL];
   };
 
   const companies = useMemo(
@@ -278,7 +283,7 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
             ? ''
             : draft.form.visitingCardUrl,
           // DINFO-BR-009: drafts saved before the default existed start at 1
-          // too, and one saved with more than 10 opens with 10.
+          // too, and one saved with more than 5 opens with 5.
           practiceLocations: capPracticeLocations(
             draft.form.practiceLocations || DEFAULT_PRACTICE_LOCATIONS,
           ),
@@ -420,13 +425,16 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
     }
   };
 
-  // DINFO-BR-009: typed, digits only, leading zeros dropped, 1 to 10
-  // (anything else is caught by validateProfile).
+  // DINFO-BR-009: picked from 1 to 5.
   // DINFO-BR-011: lowering it only hides locations; nothing is cleared.
-  const setPracticeLocations = (raw: string) => {
-    const value = raw.replace(/[^0-9]/g, '').replace(/^0+(?=\d)/, '');
+  const setPracticeLocations = (value: string) => {
     setForm((prev) => ({ ...prev, practiceLocations: value }));
     clearError('practiceLocations');
+    // DINFO-BR-017: a kept "Both" is flagged the moment it stops being allowed.
+    if (form.practiceType === PRACTICE_TYPE_BOTH) {
+      if (canChooseBoth(value)) clearError('practiceType');
+      else setErrors((prev) => ({ ...prev, practiceType: BOTH_NEEDS_LOCATIONS_MSG }));
+    }
   };
 
   const toggleSite = (index: number) =>
@@ -709,10 +717,10 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
           value={site.hospital}
           onChange={(next) => {
             updateSite(index, { hospital: next });
-            // A hospital typed in (not in the master list): add it to the
-            // database now, as Searle does (DOC-FR-017). Offline, the server
-            // still adds it when the profile uploads (DOC-BR-012).
-            if (next && site.city && !isMasterHospital(site.city, next)) {
+            // DINFO-FR-015: "Other" is added to the city's hospitals only when
+            // the city has none yet, so it is never duplicated (DOC-FR-017).
+            // Offline, the server adds it when the profile uploads (DOC-BR-012).
+            if (next === OTHER_HOSPITAL && site.city && !isMasterHospital(site.city, next)) {
               void addHospitalNow(queryClient, site.city, next);
             }
           }}
@@ -942,23 +950,24 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
           <SectionCard>
             <Field
               name="practiceLocations"
-              label="No. of Practice Locations"
+              label="No. Of Practice Locations"
               required
               help={FIELD_HELP.practiceLocations}
               error={err('practiceLocations')}
             >
-              <TextField
+              <SelectField
+                options={PRACTICE_LOCATION_OPTIONS}
                 value={form.practiceLocations}
-                onChangeText={setPracticeLocations}
-                placeholder="1 to 10"
-                keyboardType="number-pad"
-                maxLength={2}
+                onChange={setPracticeLocations}
+                placeholder="Select an option"
+                title="No. Of Practice Locations"
                 invalid={Boolean(err('practiceLocations'))}
+                searchable={false}
               />
             </Field>
             <Field
               name="practiceType"
-              label="Practice Type"
+              label="Practice Type Location"
               required
               help={FIELD_HELP.practiceType}
               error={err('practiceType')}
@@ -968,6 +977,8 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
                 value={form.practiceType}
                 onChange={(next) => update('practiceType', next)}
                 invalid={Boolean(err('practiceType'))}
+                // DINFO-BR-017: Both only with more than 1 practice location.
+                disabledOptions={canChooseBoth(form.practiceLocations) ? [] : [PRACTICE_TYPE_BOTH]}
               />
             </Field>
           </SectionCard>
@@ -975,7 +986,8 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
 
       case 'practice':
         // DINFO-FR-011: one card per location, two side by side on every
-        // screen size (Primary | Secondary, Location 3 | Location 4, …).
+        // screen size (Primary | Secondary, Location 3 | Location 4); a card
+        // with no partner takes the full width.
         return (
           <PairedColumns>
             {sites.map((_, index) => (
@@ -1148,16 +1160,13 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
           {/* Searle's review card: the key facts, one line each. */}
           <SectionCard>
             <View>
-              <DetailRow label="Name" value={formatDoctorName(form.doctorName)} />
-              <DetailRow
-                label="PMDC"
-                value={form.pmdcStatus ? `${form.pmdcNumber} (${form.pmdcStatus})` : form.pmdcNumber}
-              />
+              {/* DINFO-FR-016: the PMDC number is in the banner above. */}
+              <DetailRow label="PMDC Status" value={form.pmdcStatus} />
               <DetailRow label="Visiting Card" value={form.visitingCardUrl ? 'Captured' : 'Missing'} />
               <DetailRow label="Gender" value={form.gender} />
               <DetailRow label="Age" value={form.age} />
               <DetailRow label="Cell No" value={form.cellNo} />
-              <DetailRow label="Practice Type" value={form.practiceType} />
+              <DetailRow label="Practice Type Location" value={form.practiceType} />
               {/* DINFO-FR-012: every location, in order. */}
               {sites.map((site, index) => (
                 <DetailRow
@@ -1204,6 +1213,7 @@ export function ProfileForm({ doctor, userId, mieId, onExit, onSaved }: ProfileF
         <FormStepper titles={STEPS.map((entry) => entry.title)} current={step} />
         {current.id !== 'pmdc' && form.doctorName ? (
           <RecordBanner
+            // DINFO-FR-016: the only place the name shows on Steps 2–6.
             name={formatDoctorName(form.doctorName)}
             codeLabel="PMDC"
             code={form.pmdcNumber}

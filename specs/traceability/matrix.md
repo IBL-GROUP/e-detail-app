@@ -16,10 +16,11 @@ How to read it: [specs/CONVENTIONS.md](../CONVENTIONS.md#traceability).
 
 ## Summary
 
-- Requirements: 186
-- Implemented: 164
+- Requirements: 190
+- Deprecated: 1
+- Implemented: 167
 - Unconfirmed: 22
-- With any verification (test or test case): 186
+- With any verification (test or test case): 190
 - With an automated test: 9
 
 ## Requirements
@@ -118,14 +119,15 @@ How to read it: [specs/CONVENTIONS.md](../CONVENTIONS.md#traceability).
 | DINFO-BR-006 | Implemented | Other-company prescriber shares need at least one row. Each row needs a unique company (c… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/profileRules.ts`, `views/doctor-profiles/CompanySharesField.tsx` | DINFO-TC-004 |
 | DINFO-BR-007 | Unconfirmed | Option lists are fixed in the app. They cover 20 specialities, religion, gender, digital … | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/profileRules.ts` | DINFO-TC-004 |
 | DINFO-BR-008 | Unconfirmed | Changing a location's city clears that location's hospital. (Its former rules, "secondary… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/ProfileForm.tsx` | DINFO-TC-004 |
-| DINFO-BR-009 | Implemented | No. of Practice Locations is a typed number field (numeric keypad, digits only, leading z… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/profileRules.ts`, `views/doctor-profiles/ProfileForm.tsx` | DINFO-TC-004 |
+| DINFO-BR-009 | Implemented | No. Of Practice Locations is a select box offering 1, 2, 3, 4 and 5. It starts at 1 on a … | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/profileRules.ts`, `views/doctor-profiles/ProfileForm.tsx` | DINFO-TC-004 |
 | DINFO-BR-010 | Implemented | Every location requires the fields DINFO-BR-004 requires of the primary practice (special… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/profileRules.ts` | DINFO-TC-009 |
 | DINFO-BR-011 | Implemented | Changing N: raising it adds empty locations at the end. Lowering it hides the locations b… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/ProfileForm.tsx`, `views/doctor-profiles/profileRules.ts` | DINFO-TC-009 |
 | DINFO-BR-012 | Implemented | Every location offers the full speciality list. Choosing a speciality at one location nev… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/ProfileForm.tsx` | DINFO-TC-009 |
 | DINFO-BR-013 | Implemented | The same doctor cannot have the same speciality at the same hospital twice. Two locations… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/profileRules.ts`, `views/doctor-profiles/ProfileForm.tsx` | DINFO-TC-009 |
 | DINFO-BR-014 | Implemented | Practice locations are named by position: the 1st is "Primary", the 2nd is "Secondary", a… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/profileRules.ts`, `views/doctor-profiles/formParts.tsx`, `views/doctor-profiles/ProfileForm.tsx`, `views/doctor-profiles/ProfileDetails.tsx` | DINFO-TC-009, DINFO-TC-011 |
 | DINFO-BR-015 | Implemented | A rejected profile cannot be edited or captured again by the rep: DINFO-FR-002 (captured … | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/DoctorProfileScreen.tsx`, `views/doctor-profiles/ApprovalStatus.tsx` | DINFO-TC-013 |
-| DINFO-BR-016 | Implemented | Coverage is unchanged by approval: the "{filled}/{assigned} filled" count, the progress b… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/index.tsx`, `api/doctorProfiles.ts` | DINFO-TC-012 |
+| DINFO-BR-016 | Implemented | Coverage is unchanged by approval: the "{filled}/{assigned} Filled" count, the progress b… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/index.tsx`, `api/doctorProfiles.ts` | DINFO-TC-012 |
+| DINFO-BR-017 | Implemented | Practice Type Location (Step 3, labelled "Practice Type" before 2026-11-19; the stored fi… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/profileRules.ts`, `views/doctor-profiles/ProfileForm.tsx`, `views/doctor-profiles/formParts.tsx`, `views/doctor-profiles/ProfileDetails.tsx` | DINFO-TC-016 |
 | DINFO-DATA-001 | Implemented | DoctorProfileInput = all profile fields (camelCase strings, plus otherCompanyPrescribers:… | [doctor-info.md](../domains/doctor-info.md) | `api/doctorProfiles.ts`, `lib/offline/doctorProfileOutbox.ts` | DINFO-TC-006 |
 | DINFO-DATA-002 | Implemented | Queue: SQLite table doctor_profile_outbox (native; web: IndexedDB e-detail-doctor-profile… | [doctor-info.md](../domains/doctor-info.md) | `lib/offline/doctorProfileOutboxStore.ts`, `lib/offline/doctorProfileOutboxStore.web.ts`, `lib/offline/doctorProfileDrafts.ts` | DINFO-TC-005 |
 | DINFO-DATA-003 | Implemented | The profile payload adds practiceSites: an ordered array of N objects {speciality, city, … | [doctor-info.md](../domains/doctor-info.md) | `api/doctorProfiles.ts`, `views/doctor-profiles/profileRules.ts`, `views/doctor-profiles/ProfileForm.tsx`, `lib/offline/persister.ts` | DINFO-TC-009 |
@@ -139,12 +141,15 @@ How to read it: [specs/CONVENTIONS.md](../CONVENTIONS.md#traceability).
 | DINFO-FR-006 | Implemented | The form autosaves a draft per rep and PMDC (450 ms debounce, once the rep has made progr… | [doctor-info.md](../domains/doctor-info.md) | `lib/offline/doctorProfileDrafts.ts`, `views/doctor-profiles/ProfileForm.tsx` | DINFO-TC-005 |
 | DINFO-FR-007 | Implemented | Save writes the profile to the device queue first, with clientUpdatedAt = now. When onlin… | [doctor-info.md](../domains/doctor-info.md) | `lib/offline/doctorProfileOutbox.ts`, `api/doctorProfiles.ts`, `views/doctor-profiles/ProfileForm.tsx` | DINFO-TC-006 |
 | DINFO-FR-008 | Implemented | A profile still waiting to upload shows "Saved on this phone…". If the last upload failed… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/DoctorProfileScreen.tsx` | DINFO-TC-006 |
-| DINFO-FR-009 | Implemented | Choosing or typing a hospital not in the master list for that city adds it with POST /doc… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/formParts.tsx`, `api/doctorProfiles.ts` | DINFO-TC-007 |
+| DINFO-FR-009 | Deprecated | Choosing or typing a hospital not in the master list for that city adds it with POST /doc… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/formParts.tsx`, `api/doctorProfiles.ts` | DINFO-TC-007 |
 | DINFO-FR-010 | Implemented | Opening Doctor Info caches the city, hospital and company master lists (GET /doctor-profi… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/index.tsx`, `api/doctorProfiles.ts`, `views/doctor-profiles/profileRules.ts` | DINFO-TC-007 |
 | DINFO-FR-011 | Implemented | Step 4 (Practice Locations) shows one card per practice location, named per DINFO-BR-014 … | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/ProfileForm.tsx`, `views/doctor-profiles/formParts.tsx`, `views/doctor-profiles/profileRules.ts` | DINFO-TC-009 |
 | DINFO-FR-012 | Implemented | Review & Submit and the read-only profile view list every practice location in order, nam… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/ProfileForm.tsx`, `views/doctor-profiles/ProfileDetails.tsx`, `views/doctor-profiles/profileRules.ts` | DINFO-TC-009 |
 | DINFO-FR-013 | Implemented | A doctor whose profile is on the server (filled and not waiting to sync) is tagged on the… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/AssignedDoctorCard.tsx`, `views/doctor-profiles/ApprovalStatus.tsx`, `api/doctorProfiles.ts` | DINFO-TC-012, DINFO-TC-014 |
 | DINFO-FR-014 | Implemented | The read-only profile shows the same approval tag in its header, next to the PMDC chips. … | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/ProfileDetails.tsx`, `views/doctor-profiles/DoctorProfileScreen.tsx`, `views/doctor-profiles/ApprovalStatus.tsx` | DINFO-TC-013, DINFO-TC-014 |
+| DINFO-FR-015 | Implemented | Each location's Hospital is a select box offering the chosen city's hospitals from the ma… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/formParts.tsx`, `views/doctor-profiles/ProfileForm.tsx`, `views/doctor-profiles/profileRules.ts`, `api/doctorProfiles.ts` | DINFO-TC-007 |
+| DINFO-FR-016 | Implemented | No information is repeated on one screen. The form's header title is "Doctor Information"… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/DoctorProfileScreen.tsx`, `views/doctor-profiles/ProfileForm.tsx`, `views/doctor-profiles/formParts.tsx`, `views/doctor-profiles/ProfileDetails.tsx` | DINFO-TC-015 |
+| DINFO-FR-017 | Implemented | Every label in Doctor Info (field labels, review and profile row labels, tabs, tags and b… | [doctor-info.md](../domains/doctor-info.md) | `views/doctor-profiles/ProfileForm.tsx`, `views/doctor-profiles/formParts.tsx`, `views/doctor-profiles/ProfileDetails.tsx`, `views/doctor-profiles/ApprovalStatus.tsx`, `views/doctor-profiles/AssignedDoctorCard.tsx`, `views/doctor-profiles/CompanySharesField.tsx`, `views/doctor-profiles/index.tsx` | DINFO-TC-015 |
 | DINFO-SEC-001 | Implemented | Screens show only profiles whose ownerId is the signed-in rep. | [doctor-info.md](../domains/doctor-info.md) | `api/doctorProfiles.ts` | DINFO-TC-008 |
 | PAT-API-001 | Implemented | Retry policy is the same as for calls. A per-item 4xx counts as a rejection and the row i… | [patients.md](../domains/patients.md) | `lib/offline/patientOutbox.ts` | PAT-TC-005 |
 | PAT-BR-001 | Implemented | Required: patient name, address, city, contact (complete), Oral/PFS, doctor, speciality, … | [patients.md](../domains/patients.md) | `views/patients/AddPatientModal.tsx` | PAT-TC-002 |
@@ -293,7 +298,7 @@ IDs owned by another repository, with how often specs and source comments cite t
 | DOC-BR-009 | 2 |
 | DOC-BR-010 | 3 |
 | DOC-BR-011 | 2 |
-| DOC-BR-012 | 7 |
+| DOC-BR-012 | 6 |
 | DOC-BR-019 | 1 |
 | DOC-BR-020 | 1 |
 | DOC-BR-021 | 1 |
@@ -304,5 +309,5 @@ IDs owned by another repository, with how often specs and source comments cite t
 | DOC-FR-009 | 3 |
 | DOC-FR-010 | 4 |
 | DOC-FR-012 | 2 |
-| DOC-FR-017 | 4 |
+| DOC-FR-017 | 5 |
 | DOC-FR-020 | 3 |

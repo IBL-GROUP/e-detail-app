@@ -1671,9 +1671,9 @@
     "/doctor-profiles/hospitals": {
       "post": {
         "operationId": "addHospital",
-        "summary": "Add a hospital to a city (cites DOC-FR-017)",
+        "summary": "Add a hospital to a city (cites DOC-FR-017). The app only adds \"Other\" (DINFO-FR-015)",
         "x-requirements": [
-          "DINFO-FR-009",
+          "DINFO-FR-015",
           "DOC-FR-017"
         ],
         "security": [

@@ -19,7 +19,7 @@ function Divider() {
  * The doctor list's card parts — 46px navy avatar, 17px name, 13px meta with
  * 14px icons, the shared Tag — with the profile state on the right: Pending
  * (amber) until profiled, Draft while a half-filled form is on the device,
- * Captured (green) after, and "Waiting to sync" while the profile is still
+ * Captured (green) after, and "Waiting To Sync" while the profile is still
  * only on this device — Searle's PENDING / DRAFT / FILLED. A profile on the
  * server shows its approval status instead of Captured (DINFO-FR-013).
  */
@@ -80,7 +80,7 @@ export function AssignedDoctorCard({
           <Tag label={approvalTag.label} icon={approvalTag.icon} tone={approvalTag.tone} />
         ) : doctor.filled ? (
           <Tag
-            label={doctor.isPending ? 'Waiting to sync' : 'Captured'}
+            label={doctor.isPending ? 'Waiting To Sync' : 'Captured'}
             icon={doctor.isPending ? 'cloud-upload-outline' : 'checkmark-circle-outline'}
             tone={doctor.isPending ? 'neutral' : 'success'}
           />

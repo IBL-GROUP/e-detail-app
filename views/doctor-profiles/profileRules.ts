@@ -53,11 +53,24 @@ export const FALLBACK_CITIES = [
 export const RELIGIONS = ['Muslim', 'Non-Muslim'];
 export const GENDERS = ['Male', 'Female'];
 export const DIGITAL_COMFORT_LEVELS = ['Low', 'Medium', 'High'];
-/** No. of Practice Locations: a typed whole number from 1 to 10, starting at 1 (DINFO-BR-009). */
+/** No. Of Practice Locations: a select box of 1 to 5, starting at 1 (DINFO-BR-009). */
 export const MIN_PRACTICE_LOCATIONS = 1;
-export const MAX_PRACTICE_LOCATIONS = 10;
+export const MAX_PRACTICE_LOCATIONS = 5;
 export const DEFAULT_PRACTICE_LOCATIONS = '1';
+export const PRACTICE_LOCATION_OPTIONS = Array.from(
+  { length: MAX_PRACTICE_LOCATIONS - MIN_PRACTICE_LOCATIONS + 1 },
+  (_, index) => String(MIN_PRACTICE_LOCATIONS + index),
+);
+/** DINFO-FR-015: the last Hospital option; the rep cannot type a new hospital. */
+export const OTHER_HOSPITAL = 'Other';
 export const PRACTICE_TYPES = ['Private', 'Hospital', 'Both'];
+/** DINFO-BR-017: "Both" needs more than one practice location. */
+export const PRACTICE_TYPE_BOTH = 'Both';
+export const BOTH_NEEDS_LOCATIONS_MSG =
+  'Select Private or Hospital — Both needs more than 1 practice location.';
+/** True when "Both" may be chosen for this No. Of Practice Locations (DINFO-BR-017). */
+export const canChooseBoth = (practiceLocations: string) =>
+  isValidPracticeLocations(practiceLocations) && Number(practiceLocations) > 1;
 export const ADOPTION_LEVELS = ['Early Adopter', 'Mid Adopter', 'Late Adopter'];
 export const ACCESS_TYPES = ['Easy', 'Moderate', 'Restricted'];
 export const INTERACTION_STYLES = ['Academic', 'Business', 'Relationship'];
@@ -245,15 +258,16 @@ export function formatPkMobile(raw: string): string {
   return digits.slice(0, 11);
 }
 
-/** A practice-location count that is a whole number from 1 to 10 (DINFO-BR-009). */
+/** A practice-location count that is a whole number from 1 to 5 (DINFO-BR-009). */
 export const isValidPracticeLocations = (value: string) =>
   /^\d+$/.test(value) &&
   Number(value) >= MIN_PRACTICE_LOCATIONS &&
   Number(value) <= MAX_PRACTICE_LOCATIONS;
 
 /**
- * DINFO-BR-009: a count above 10 from a draft saved before the cap becomes 10.
- * The locations beyond 10 stay in the draft, hidden (DINFO-BR-011).
+ * DINFO-BR-009: a count above 5 from a draft saved before the select box
+ * (when up to 10 could be typed) becomes 5. The locations beyond 5 stay in the
+ * draft, hidden (DINFO-BR-011).
  */
 export const capPracticeLocations = (value: string) =>
   /^\d+$/.test(value) && Number(value) > MAX_PRACTICE_LOCATIONS
@@ -369,6 +383,10 @@ export function validateProfile(form: DoctorProfileFields): Record<string, strin
   // DINFO-BR-009
   if (isRequired(form.practiceLocations) && !isValidPracticeLocations(form.practiceLocations)) {
     errors.practiceLocations = `Enter a number from ${MIN_PRACTICE_LOCATIONS} to ${MAX_PRACTICE_LOCATIONS}.`;
+  }
+  // DINFO-BR-017
+  if (form.practiceType === PRACTICE_TYPE_BOTH && !canChooseBoth(form.practiceLocations)) {
+    errors.practiceType = BOTH_NEEDS_LOCATIONS_MSG;
   }
   if (!isNonNegativeNumeric(form.age || '')) errors.age = 'Enter a valid non-negative age.';
   if (!isRequired(form.cellNo)) errors.cellNo = REQUIRED_MSG;

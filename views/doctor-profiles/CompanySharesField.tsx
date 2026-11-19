@@ -102,7 +102,7 @@ export function CompanySharesField({
           style={({ pressed }) => [styles.add, (pressed || total >= 100) && styles.addDim]}
         >
           <Ionicons name="add-circle-outline" size={18} color={Colors.primary} />
-          <Text style={styles.addText}>Add company</Text>
+          <Text style={styles.addText}>Add Company</Text>
         </Pressable>
         <Text style={[styles.total, total === 100 ? styles.totalOk : styles.totalWarn]}>
           Total: {total}%{total === 100 ? '' : ' (must equal 100%)'}

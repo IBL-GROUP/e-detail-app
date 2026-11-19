@@ -408,7 +408,7 @@ export const useAssignedDoctors = (mieId?: string, userId?: string) => {
         profileId: row.profileId ?? `local:${entry.clientLocalId}`,
         isPending,
         // DINFO-DATA-005: a profile still only on this device has no server
-        // status yet — it reads "Waiting to sync", never a stale decision.
+        // status yet — it reads "Waiting To Sync", never a stale decision.
         ...(isPending ? { approvalStatus: null, approvalReason: null, approvalNote: null } : null),
       };
     });

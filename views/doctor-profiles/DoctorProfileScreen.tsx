@@ -16,7 +16,6 @@ import {
 } from '@/api/doctorProfiles';
 import { ProfileDetails } from './ProfileDetails';
 import { ProfileForm } from './ProfileForm';
-import { formatDoctorName } from './profileRules';
 
 /**
  * Back to the assigned list. Explicitly, not router.back(): this screen lives
@@ -89,9 +88,8 @@ export default function DoctorProfileScreen({ pmdc }: { pmdc: string }) {
     }
   };
 
-  // Searle's screen titles.
-  const title = profile && !formOpen ? 'Doctor Details' : 'Add Doctor';
-  const name = formatDoctorName(profile?.doctorName ?? doctor?.doctorName) || key;
+  // DINFO-FR-016: no doctor name in the header — the screen body shows it once.
+  const title = profile && !formOpen ? 'Doctor Details' : 'Doctor Information';
 
   const confirmDiscard = (localId: string) => {
     Alert.alert(
@@ -118,7 +116,7 @@ export default function DoctorProfileScreen({ pmdc }: { pmdc: string }) {
   // Not profiled yet, and the doctor is on the rep's list — the form.
   if (formOpen && doctor && userId) {
     return (
-      <ScreenLayout title={title} subtitle={name} scrollable={false} showBack>
+      <ScreenLayout title={title} scrollable={false} showBack>
         <ProfileForm
           doctor={doctor}
           userId={userId}
@@ -133,7 +131,7 @@ export default function DoctorProfileScreen({ pmdc }: { pmdc: string }) {
   // A captured profile — shown read-only.
   if (profile) {
     return (
-      <ScreenLayout title={title} subtitle={name} scrollable={false} showBack>
+      <ScreenLayout title={title} scrollable={false} showBack>
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           {profile.isPending ? (
             <View style={styles.pendingBanner}>
@@ -177,7 +175,7 @@ export default function DoctorProfileScreen({ pmdc }: { pmdc: string }) {
   const loading = assignedQuery.isLoading || profilesQuery.isLoading;
 
   return (
-    <ScreenLayout title={title} subtitle={name} scrollable={false} showBack>
+    <ScreenLayout title={title} scrollable={false} showBack>
       <View style={styles.content}>
         <View style={styles.stateCard}>
           {loading ? (
