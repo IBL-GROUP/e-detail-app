@@ -220,7 +220,7 @@ How to read it: [specs/CONVENTIONS.md](../CONVENTIONS.md#traceability).
 
 ## Known gaps and open questions
 
-61 recorded, 60 open. Each needs a decision from its owner. Resolve it in its spec, then regenerate.
+62 recorded, 61 open. Each needs a decision from its owner. Resolve it in its spec, then regenerate.
 
 | Gap | Status | Observation | Spec |
 |---|---|---|---|
@@ -283,6 +283,7 @@ How to read it: [specs/CONVENTIONS.md](../CONVENTIONS.md#traceability).
 | SYNC-GAP-003 | Open | Neither the background task nor runSync flushes the upload queues, so queued calls upload only while the app is open. Confirm whether the o… | [sync.md](../domains/sync.md) |
 | SYNC-GAP-004 | Open | /doctor/planned-all puts every rep's planned list on every phone, behind the shared app key (see AUTH-GAP-001). Confirm this is acceptable … | [sync.md](../domains/sync.md) |
 | SYNC-GAP-005 | Open | clearImageCache() is documented as "used on logout" but is never called, so images persist across reps on a shared phone. This may be inten… | [sync.md](../domains/sync.md) |
+| SYNC-GAP-006 | Open | The sync speed logging built on sandbox (the phone speed test measurePhoneSpeed in api/sync.ts calling GET /sync/speedtest, packed-size spe… | [sync.md](../domains/sync.md) |
 | TEL-GAP-001 | Open | Screen keys are missing for doctor-profiles, doctor-profile and explore, which are filed as other. | [telemetry.md](../domains/telemetry.md) |
 | TEL-GAP-002 | Open | Error messages and stacks may contain data from the failing context. No scrubbing is applied. Confirm this is acceptable. | [telemetry.md](../domains/telemetry.md) |
 

@@ -6,6 +6,7 @@ export const ApiEndpoints = {
   teamBrands: '/content/team-brands',
   mieBrands: '/content/mie-brands',
   syncDaily: '/sync/daily',
+  syncSpeedtest: '/sync/speedtest',
 } as const;
 
 export type ApiEndpoints = typeof ApiEndpoints;

@@ -1,7 +1,7 @@
 import { QueryClient, onlineManager } from '@tanstack/react-query';
 import { PersistQueryClientProvider } from '@tanstack/react-query-persist-client';
 import NetInfo from '@react-native-community/netinfo';
-import { filePersister, CACHE_BUSTER } from '@/lib/offline/persister';
+import { filePersister, CACHE_BUSTER, shouldPersistQuery } from '@/lib/offline/persister';
 
 // Keep cached data for a week so the app works offline across days.
 export const WEEK_MS = 1000 * 60 * 60 * 24 * 7;
@@ -55,8 +55,9 @@ export function AppQueryProvider({ children }: AppQueryProviderProps) {
         maxAge: WEEK_MS,
         buster: CACHE_BUSTER,
         dehydrateOptions: {
-          // Only persist successful queries (don't cache errors/loading).
-          shouldDehydrateQuery: (query) => query.state.status === 'success',
+          // Every query holding data — a failed refresh must not drop it from
+          // the device (see shouldPersistQuery).
+          shouldDehydrateQuery: shouldPersistQuery,
         },
       }}
     >

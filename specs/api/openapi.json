@@ -1896,6 +1896,29 @@
           }
         }
       }
+    },
+    "/sync/speedtest": {
+      "get": {
+        "operationId": "getSyncSpeedtest",
+        "summary": "A fixed 256 KB the app times to measure the phone's own internet speed",
+        "description": "No app requirement yet (SYNC-GAP-006). Server rule: e-detailing-be SYNC-NFR-001. Called by measurePhoneSpeed in api/sync.ts; the body is timed, not parsed.",
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        }
+      }
     }
   },
   "components": {

@@ -2,7 +2,7 @@ import { notifyManager } from '@tanstack/react-query';
 import { persistQueryClientSave } from '@tanstack/react-query-persist-client';
 
 import { queryClient } from '@/providers/QueryProvider';
-import { filePersister, CACHE_BUSTER } from '@/lib/offline/persister';
+import { filePersister, CACHE_BUSTER, shouldPersistQuery } from '@/lib/offline/persister';
 import {
   plannedDoctorsKey,
   doctorsKey,
@@ -20,6 +20,7 @@ import { getDailySync } from '@/api/sync';
 import { teamSkusKey } from '@/api/sku';
 import { syncImages, loadImageManifest, type DownloadProgress } from './imageCache';
 import { setSyncMeta } from './syncMeta';
+import type { SyncDownload } from '@/lib/usage/syncNetwork';
 
 /**
  * Gives the UI thread one turn. Sync runs on the same JS thread as the screen,
@@ -31,6 +32,8 @@ export interface RunSyncParams {
   mieId: string;
   teamId: number;
   onProgress?: (progress: DownloadProgress) => void;
+  /** How the day's data download went, or how far it got (for the usage log). */
+  onDownload?: (download: SyncDownload) => void;
 }
 
 /**
@@ -46,10 +49,11 @@ export async function runSync({
   mieId,
   teamId,
   onProgress,
+  onDownload,
 }: RunSyncParams): Promise<void> {
   await loadImageManifest();
 
-  const payload = await getDailySync({ teamId, mieId });
+  const payload = await getDailySync({ teamId, mieId, onDownload });
 
   // Let the screen handle any tap that queued during the download above before
   // the heavy part starts.
@@ -143,7 +147,7 @@ export async function runSync({
     persister: filePersister,
     buster: CACHE_BUSTER,
     dehydrateOptions: {
-      shouldDehydrateQuery: (query) => query.state.status === 'success',
+      shouldDehydrateQuery: shouldPersistQuery,
     },
   });
 
