@@ -1,0 +1,33 @@
+diff --git a/node_modules/expo-location/android/src/main/java/expo/modules/location/LocationHelpers.kt b/node_modules/expo-location/android/src/main/java/expo/modules/location/LocationHelpers.kt
+index 62caaba..75ebdb0 100644
+--- a/node_modules/expo-location/android/src/main/java/expo/modules/location/LocationHelpers.kt
++++ b/node_modules/expo-location/android/src/main/java/expo/modules/location/LocationHelpers.kt
+@@ -87,6 +87,13 @@ class LocationHelpers {
+     }
+ 
+     fun requestContinuousUpdates(locationModule: LocationModule, locationRequest: LocationRequest, watchId: Int, promise: Promise) {
++      // e-detail-app patch: the promise answers "the watch started" ONCE. A watch
++      // that is already running can later report a failure (an update with no
++      // position while location is available — LocationModule.requestLocationUpdates);
++      // rejecting the already-resolved promise then crashed the app with
++      // "JavaCallback was already settled. Cannot invoke it again". Such a later
++      // failure is dropped; the watch keeps delivering positions.
++      var settled = false
+       locationModule.requestLocationUpdates(
+         locationRequest,
+         watchId,
+@@ -96,10 +103,14 @@ class LocationHelpers {
+           }
+ 
+           override fun onRequestSuccess() {
++            if (settled) return
++            settled = true
+             promise.resolve(null)
+           }
+ 
+           override fun onRequestFailed(cause: CodedException) {
++            if (settled) return
++            settled = true
+             promise.reject(cause)
+           }
+         }

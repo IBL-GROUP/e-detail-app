@@ -143,14 +143,30 @@ function stopWatching(subscription: Location.LocationSubscription | null | undef
 }
 
 /**
+ * How long the warm-up listens. Long enough for the GPS to lock on while the rep
+ * reads the doctor screen; not for the hours a screen can stay open — a watch
+ * left running for hours is what hit expo-location's "JavaCallback was already
+ * settled" crash (see patches/expo-location+19.0.8.patch), and it drains the
+ * battery. Arrived still takes a fresh fix of its own (listenForFix).
+ */
+const WARMUP_MAX_MS = 2 * 60_000;
+
+/**
  * Starts listening for position while a doctor screen is open, so that by the
  * time the rep taps Arrived the GPS has usually got a fix already. Only runs
- * when permission is already granted — it never prompts on its own. Returns a
- * stop function.
+ * when permission is already granted — it never prompts on its own. Stops by
+ * itself after WARMUP_MAX_MS. Returns a stop function.
  */
 export function startLocationWarmup(): () => void {
   let subscription: Location.LocationSubscription | null = null;
   let stopped = false;
+  const stop = () => {
+    stopped = true;
+    clearTimeout(limit);
+    stopWatching(subscription);
+    subscription = null;
+  };
+  const limit = setTimeout(stop, WARMUP_MAX_MS);
 
   void (async () => {
     try {
@@ -167,11 +183,7 @@ export function startLocationWarmup(): () => void {
     }
   })();
 
-  return () => {
-    stopped = true;
-    stopWatching(subscription);
-    subscription = null;
-  };
+  return stop;
 }
 
 /**
